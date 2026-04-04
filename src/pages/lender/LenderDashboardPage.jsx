@@ -1,7 +1,9 @@
 import React, { useContext, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { AppContext } from '../../context/AppContext';
 import { Web3Context } from '../../context/Web3Context';
 import { useToast } from '../../components/shared/ToastProvider';
+import { StatCard } from '../../components/shared/SharedComponents';
 
 // ─── Utility ──────────────────────────────────────────────────────────────────
 const shortAddr = (addr) => addr ? `${addr.slice(0, 6)}…${addr.slice(-4)}` : '';
@@ -15,6 +17,7 @@ const pill = (status) => {
 export const LenderDashboardPage = () => {
   const navigate  = useNavigate();
   const showToast = useToast();
+  const { lenderData } = useContext(AppContext);
   const { contract, account, trustScore } = useContext(Web3Context);
 
   const [portfolio, setPortfolio]   = useState(null);
@@ -23,7 +26,10 @@ export const LenderDashboardPage = () => {
 
   // ─── Fetch all loans funded by the connected account ──────────────────────
   const fetchPortfolio = async () => {
-    if (!contract || !account) return;
+    if (!contract || !account) {
+      setLoading(false);
+      return;
+    }
     try {
       const count   = await contract.getLoanCount();
       const myLoans = [];
@@ -94,7 +100,14 @@ export const LenderDashboardPage = () => {
     );
   }
 
+  // Derive stats (mixing AppContext mockup with real blockchain if available)
   const p = portfolio;
+  const blockchainTotalLent = p ? p.totalDeployed : 0;
+  const displayTotalLent = lenderData.totalLent + blockchainTotalLent;
+  
+  const blockchainActiveCount = p ? p.outstanding.length : 0;
+  const displayActiveLoans = lenderData.activeLoans + blockchainActiveCount;
+
   const totalInterest = p ? p.totalExpected - p.totalDeployed : 0;
   const repaymentRate = p && p.myLoans.length > 0
     ? Math.round((p.repaidCount / p.myLoans.length) * 100) : 0;
@@ -118,43 +131,61 @@ export const LenderDashboardPage = () => {
         </div>
       </div>
 
-      {/* ── Portfolio KPI Cards ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 'var(--sp-4)', marginBottom: 'var(--sp-6)' }}>
-        <div className="card animate-fade-in-up" style={{ textAlign: 'center' }}>
-          <div style={{ fontSize: '0.75rem', color: 'var(--color-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>Total Deployed</div>
-          <div style={{ fontSize: '1.8rem', fontWeight: 800, color: 'var(--color-primary)' }}>
-            ₹{p?.totalDeployed.toLocaleString('en-IN') ?? 0}
+      {/* Stat cards overlay */}
+      <div className="stat-cards-grid animate-fade-in-up stagger-1">
+        <StatCard label="Total Lent" value={`₹${displayTotalLent.toLocaleString('en-IN')}`}
+          sub="Across all loans" color="var(--color-warning)"
+          icon={<svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><rect x="1" y="5" width="18" height="12" rx="2"/><path d="M1 9h18"/></svg>} />
+        <StatCard label="Interest Earned" value={`₹${lenderData.interestEarned.toLocaleString('en-IN')}`}
+          sub="Net returns" color="var(--color-success)"
+          icon={<svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M1 15l5-7 4 3 4-6 5 3"/></svg>} />
+        <StatCard label="Active Loans" value={displayActiveLoans}
+          sub="Currently funded" color="var(--color-primary)"
+          icon={<svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M10 2L3 6v6c0 4 3 6.5 7 8 4-1.5 7-4 7-8V6l-7-4z"/></svg>} />
+        <StatCard label="Repayments Received" value={`₹${(lenderData.repaymentsReceived + (p?.totalRepaid || 0)).toLocaleString('en-IN')}`}
+          sub="Returned to you" color="#185FA5"
+          icon={<svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M18 10H2M8 4l-6 6 6 6"/></svg>} />
+      </div>
+
+      {/* Portfolio Health Overview */}
+      <div className="card animate-fade-in-up stagger-2 mb-5 mt-5">
+        <div className="loan-panel-header">
+          <div>
+            <div className="card-title">On-Chain Portfolio Health</div>
+            <div className="card-subtitle">Based on repayment performance of your smart contract funded loans</div>
           </div>
           <div style={{ fontSize: '0.75rem', color: 'var(--color-muted)' }}>{p?.myLoans.length ?? 0} loans funded</div>
         </div>
 
-        <div className="card animate-fade-in-up stagger-1" style={{ textAlign: 'center' }}>
-          <div style={{ fontSize: '0.75rem', color: 'var(--color-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>Expected Interest</div>
-          <div style={{ fontSize: '1.8rem', fontWeight: 800, color: 'var(--color-warning)' }}>
-            +₹{totalInterest.toLocaleString('en-IN')}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 'var(--sp-4)', marginTop: 16 }}>
+          <div style={{ textAlign: 'center' }}>
+            <div style={{ fontSize: '0.75rem', color: 'var(--color-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>Expected Interest</div>
+            <div style={{ fontSize: '1.8rem', fontWeight: 800, color: 'var(--color-warning)' }}>
+              +₹{totalInterest.toLocaleString('en-IN')}
+            </div>
+            <div style={{ fontSize: '0.75rem', color: 'var(--color-muted)' }}>across all active loans</div>
           </div>
-          <div style={{ fontSize: '0.75rem', color: 'var(--color-muted)' }}>across all active loans</div>
-        </div>
 
-        <div className="card animate-fade-in-up stagger-2" style={{ textAlign: 'center' }}>
-          <div style={{ fontSize: '0.75rem', color: 'var(--color-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>Total Received</div>
-          <div style={{ fontSize: '1.8rem', fontWeight: 800, color: 'var(--color-success)' }}>
-            ₹{p?.totalRepaid.toLocaleString('en-IN') ?? 0}
+          <div style={{ textAlign: 'center' }}>
+            <div style={{ fontSize: '0.75rem', color: 'var(--color-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>Total Received</div>
+            <div style={{ fontSize: '1.8rem', fontWeight: 800, color: 'var(--color-success)' }}>
+              ₹{p?.totalRepaid.toLocaleString('en-IN') ?? 0}
+            </div>
+            <div style={{ fontSize: '0.75rem', color: 'var(--color-muted)' }}>repaid to your wallet</div>
           </div>
-          <div style={{ fontSize: '0.75rem', color: 'var(--color-muted)' }}>repaid to your wallet</div>
-        </div>
 
-        <div className="card animate-fade-in-up stagger-3" style={{ textAlign: 'center' }}>
-          <div style={{ fontSize: '0.75rem', color: 'var(--color-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>Repayment Rate</div>
-          <div style={{ fontSize: '1.8rem', fontWeight: 800, color: repaymentRate >= 80 ? 'var(--color-success)' : 'var(--color-warning)' }}>
-            {repaymentRate}%
+          <div style={{ textAlign: 'center' }}>
+            <div style={{ fontSize: '0.75rem', color: 'var(--color-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>Repayment Rate</div>
+            <div style={{ fontSize: '1.8rem', fontWeight: 800, color: repaymentRate >= 80 ? 'var(--color-success)' : 'var(--color-warning)' }}>
+              {repaymentRate}%
+            </div>
+            <div style={{ fontSize: '0.75rem', color: 'var(--color-muted)' }}>{p?.repaidCount}/{p?.myLoans.length} loans closed</div>
           </div>
-          <div style={{ fontSize: '0.75rem', color: 'var(--color-muted)' }}>{p?.repaidCount}/{p?.myLoans.length} loans closed</div>
         </div>
       </div>
 
       {/* ── Loan List ── */}
-      {p?.myLoans.length === 0 ? (
+      {!p || p.myLoans.length === 0 ? (
         <div className="card animate-fade-in-up" style={{ textAlign: 'center', padding: 'var(--sp-10)' }}>
           <div style={{ fontSize: '2.5rem', marginBottom: 12 }}>💼</div>
           <div className="card-title mb-2">No loans funded yet</div>

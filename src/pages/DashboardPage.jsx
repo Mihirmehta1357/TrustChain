@@ -21,7 +21,7 @@ export const DashboardPage = () => {
   useScrollAnimation('.animate-fade-in-up');
 
   // Live on-chain borrower data
-  const [myLoans, setMyLoans]     = useState([]);
+  const [myLoans, setMyLoans]         = useState([]);
   const [liveLoading, setLiveLoading] = useState(true);
 
   useEffect(() => {
@@ -53,11 +53,11 @@ export const DashboardPage = () => {
     return () => clearInterval(interval);
   }, [contract, account]);
 
-  const liveScore      = onChainScore ?? appScore;
-  const activeLoans    = myLoans.filter(l => l.status === 1);
-  const repaidLoans    = myLoans.filter(l => l.status === 2);
-  const totalBorrowed  = myLoans.reduce((s, l) => s + l.principal, 0);
-  const totalOwedNow   = activeLoans.reduce((s, l) => s + l.totalOwed, 0);
+  const liveScore     = onChainScore ?? appScore;
+  const activeLoans   = myLoans.filter(l => l.status === 1);
+  const repaidLoans   = myLoans.filter(l => l.status === 2);
+  const totalBorrowed = myLoans.reduce((s, l) => s + l.principal, 0);
+  const totalOwedNow  = activeLoans.reduce((s, l) => s + l.totalOwed, 0);
 
   const scoreLabel = liveScore >= 80 ? 'High Trust 🌟' : liveScore >= 60 ? 'Medium-High' : liveScore >= 40 ? 'Building Trust' : 'New Member';
   const scoreColor = liveScore >= 80 ? 'var(--color-success)' : liveScore >= 60 ? 'var(--color-warning)' : 'var(--color-danger)';

@@ -32,6 +32,9 @@ import { FundLoanPage } from './pages/lender/FundLoanPage';
 import { TrustScoreDetailPage } from './pages/trust/TrustScoreDetailPage';
 import { IdentityVerificationPage } from './pages/trust/IdentityVerificationPage';
 
+// KYC
+import { KYCPage } from './pages/kyc/KYCPage';
+
 // Governance
 import { FraudVotingPage } from './pages/governance/FraudVotingPage';
 import { LoanApprovalVotingPage } from './pages/governance/LoanApprovalVotingPage';
@@ -109,6 +112,11 @@ export default function App() {
             </Route>
             <Route path="/governance" element={<AppLayout />}>
               <Route index element={<LoanApprovalVotingPage />} />
+            </Route>
+
+            {/* KYC */}
+            <Route path="/kyc" element={<AppLayout />}>
+              <Route index element={<KYCPage />} />
             </Route>
 
             {/* Fallback */}

@@ -1,210 +1,297 @@
-import React, { useState, useContext } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useContext, useRef } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import { AppContext } from '../../context/AppContext';
-import { Web3Context } from '../../context/Web3Context';
-import { StepIndicator, TrustGaugeLarge } from '../../components/shared/SharedComponents';
+import { supabase } from '../../utils/supabaseClient';
 
-const STEPS = ['Your details', 'Identity', 'Trust Score'];
+const inputStyle = {
+  width: '100%', padding: '12px 16px', fontSize: '15px',
+  fontFamily: 'inherit', color: '#1A2B3D', background: '#FFFFFF',
+  border: '1.5px solid #E8EDF2', borderRadius: '10px', outline: 'none',
+  transition: 'border-color 0.15s ease, box-shadow 0.15s ease', boxSizing: 'border-box',
+};
+const focusedStyle = { ...inputStyle, borderColor: '#3B9B9B', boxShadow: '0 0 0 3px rgba(59,155,155,0.15)' };
+const labelStyle = { display: 'block', fontSize: '13px', fontWeight: 600, color: '#1A2B3D', marginBottom: '6px' };
+const groupStyle = { marginBottom: '16px' };
 
-export const SignUpPage = () => {
-  const navigate = useNavigate();
-  const { onboardingStep, setOnboardingStep, setVerification, setUser, user, setIsLoggedIn } = useContext(AppContext);
-  const { connectWallet, account } = useContext(Web3Context);
-  const [role, setRole] = useState('borrower');
+// ─── Step 1: Registration Form ──────────────────────────────
+const StepRegister = ({ onSuccess, loading, setLoading, setError, error }) => {
   const [name, setName] = useState('');
-  const [docType, setDocType] = useState(null);
-  const [docUploaded, setDocUploaded] = useState(false);
-  const [generatedScore] = useState(72);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [focused, setFocused] = useState('');
+  const fs = (f) => focused === f ? focusedStyle : inputStyle;
 
-  const handleStep1 = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!account) {
-      alert("Please connect your MetaMask wallet to continue.");
-      return;
-    }
-    setUser({ ...user, role: role });
-    setOnboardingStep(2);
-  };
+    setError('');
+    if (!name.trim()) return setError('Please enter your full name.');
+    if (password !== confirm) return setError('Passwords do not match.');
+    if (password.length < 6) return setError('Password must be at least 6 characters.');
+    setLoading(true);
 
-  const handleStep2 = (e) => {
-    e.preventDefault();
-    if (!docType) return;
-    setDocUploaded(true);
-    setVerification('phone');
-    setOnboardingStep(3);
-  };
+    const { error: err } = await supabase.auth.signUp({
+      email, password,
+      options: { data: { full_name: name } }
+    });
 
-  const handleFinish = () => {
-    setIsLoggedIn(true);
-    navigate('/app/dashboard');
+    setLoading(false);
+    if (err) return setError(err.message);
+    onSuccess({ name, email });
   };
 
   return (
-    <div className="auth-shell signup-shell">
-      <div className="auth-card signup-card">
-        <div className="auth-logo">
-          <svg width="36" height="36" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+    <form onSubmit={handleSubmit}>
+      {error && (
+        <div style={{ background: '#FEE2E2', color: '#DC2626', padding: '12px 16px', borderRadius: '10px', fontSize: '13px', marginBottom: '20px', border: '1px solid #FECACA' }}>
+          &#9888; {error}
+        </div>
+      )}
+      <div style={groupStyle}>
+        <label style={labelStyle}>Full Name</label>
+        <input id="signup-name" type="text" placeholder="e.g. Riya Kulkarni" required
+          value={name} onChange={e => setName(e.target.value)}
+          onFocus={() => setFocused('name')} onBlur={() => setFocused('')}
+          style={fs('name')} />
+      </div>
+      <div style={groupStyle}>
+        <label style={labelStyle}>Gmail / Email</label>
+        <input id="signup-email" type="email" placeholder="yourname@gmail.com" required
+          value={email} onChange={e => setEmail(e.target.value)}
+          onFocus={() => setFocused('email')} onBlur={() => setFocused('')}
+          style={fs('email')} />
+      </div>
+      <div style={groupStyle}>
+        <label style={labelStyle}>Password</label>
+        <input id="signup-password" type="password" placeholder="Min. 6 characters" required
+          value={password} onChange={e => setPassword(e.target.value)}
+          onFocus={() => setFocused('password')} onBlur={() => setFocused('')}
+          style={fs('password')} />
+      </div>
+      <div style={{ ...groupStyle, marginBottom: '24px' }}>
+        <label style={labelStyle}>Confirm Password</label>
+        <input id="signup-confirm" type="password" placeholder="Re-enter password" required
+          value={confirm} onChange={e => setConfirm(e.target.value)}
+          onFocus={() => setFocused('confirm')} onBlur={() => setFocused('')}
+          style={fs('confirm')} />
+      </div>
+      <button type="submit" id="signup-submit-btn" disabled={loading}
+        style={{ width: '100%', padding: '14px', background: loading ? '#7FC8C8' : '#3B9B9B', color: '#fff', border: 'none', borderRadius: '12px', fontSize: '15px', fontWeight: 700, cursor: loading ? 'not-allowed' : 'pointer', boxShadow: '0 4px 16px rgba(59,155,155,0.3)' }}>
+        {loading ? 'Sending OTP...' : 'Create Account \u2192'}
+      </button>
+    </form>
+  );
+};
+
+// ─── Step 2: OTP Verification ───────────────────────────────
+const StepVerifyOtp = ({ email, onVerified, loading, setLoading, setError, error, onResend }) => {
+  const [digits, setDigits] = useState(['', '', '', '', '', '']);
+  const refs = [useRef(), useRef(), useRef(), useRef(), useRef(), useRef()];
+
+  const handleChange = (val, idx) => {
+    const d = [...digits];
+    d[idx] = val.replace(/\D/, '').slice(-1);
+    setDigits(d);
+    if (val && idx < 5) refs[idx + 1].current?.focus();
+  };
+
+  const handleKeyDown = (e, idx) => {
+    if (e.key === 'Backspace' && !digits[idx] && idx > 0) refs[idx - 1].current?.focus();
+  };
+
+  const handlePaste = (e) => {
+    const pasted = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6);
+    if (pasted.length === 6) {
+      setDigits(pasted.split(''));
+      refs[5].current?.focus();
+    }
+    e.preventDefault();
+  };
+
+  const handleVerify = async (e) => {
+    e.preventDefault();
+    const token = digits.join('');
+    if (token.length < 6) return setError('Please enter the full 6-digit OTP.');
+    setLoading(true);
+    setError('');
+
+    const { data, error: err } = await supabase.auth.verifyOtp({ email, token, type: 'signup' });
+    setLoading(false);
+    if (err) return setError('Invalid OTP. Please check your Gmail inbox and try again.');
+    onVerified(data.user);
+  };
+
+  return (
+    <form onSubmit={handleVerify}>
+      {/* Email hint */}
+      <div style={{ background: '#E6F4F4', border: '1px solid #B2DFDF', borderRadius: '12px', padding: '14px 16px', marginBottom: '24px', display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
+        <span style={{ fontSize: '20px' }}>&#128140;</span>
+        <div>
+          <div style={{ fontSize: '13px', fontWeight: 600, color: '#1A2B3D' }}>Check your Gmail inbox</div>
+          <div style={{ fontSize: '12px', color: '#6B7B8D', marginTop: '2px' }}>
+            A 6-digit OTP was sent to <strong>{email}</strong>
+          </div>
+        </div>
+      </div>
+
+      {error && (
+        <div style={{ background: '#FEE2E2', color: '#DC2626', padding: '12px 16px', borderRadius: '10px', fontSize: '13px', marginBottom: '16px', border: '1px solid #FECACA' }}>
+          &#9888; {error}
+        </div>
+      )}
+
+      {/* OTP digit boxes */}
+      <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', marginBottom: '24px' }} onPaste={handlePaste}>
+        {digits.map((d, i) => (
+          <input
+            key={i}
+            ref={refs[i]}
+            id={`otp-digit-${i}`}
+            type="text"
+            inputMode="numeric"
+            maxLength={1}
+            value={d}
+            onChange={e => handleChange(e.target.value, i)}
+            onKeyDown={e => handleKeyDown(e, i)}
+            style={{
+              width: '48px', height: '56px', textAlign: 'center',
+              fontSize: '22px', fontWeight: 700, fontFamily: 'monospace',
+              border: d ? '2px solid #3B9B9B' : '1.5px solid #E8EDF2',
+              borderRadius: '12px', outline: 'none',
+              background: d ? '#E6F4F4' : '#FFFFFF',
+              color: '#1A2B3D', transition: 'all 0.15s ease',
+              boxShadow: d ? '0 0 0 3px rgba(59,155,155,0.1)' : 'none',
+            }}
+          />
+        ))}
+      </div>
+
+      <button type="submit" id="otp-verify-btn" disabled={loading}
+        style={{ width: '100%', padding: '14px', background: loading ? '#7FC8C8' : '#3B9B9B', color: '#fff', border: 'none', borderRadius: '12px', fontSize: '15px', fontWeight: 700, cursor: loading ? 'not-allowed' : 'pointer', boxShadow: '0 4px 16px rgba(59,155,155,0.3)' }}>
+        {loading ? 'Verifying...' : 'Verify Email \u2192'}
+      </button>
+
+      <div style={{ textAlign: 'center', marginTop: '16px', fontSize: '13px', color: '#6B7B8D' }}>
+        Didn&#39;t receive the email?{' '}
+        <button type="button" onClick={onResend}
+          style={{ background: 'none', border: 'none', color: '#3B9B9B', fontWeight: 600, cursor: 'pointer', fontSize: '13px', padding: 0 }}>
+          Resend OTP
+        </button>
+      </div>
+    </form>
+  );
+};
+
+// ─── Main SignUp Page ───────────────────────────────────────
+export const SignUpPage = () => {
+  const navigate = useNavigate();
+  const { setUser, setIsLoggedIn } = useContext(AppContext);
+  const [step, setStep] = useState(1); // 1 = register, 2 = verify OTP
+  const [registeredEmail, setRegisteredEmail] = useState('');
+  const [registeredName, setRegisteredName] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleRegistered = ({ name, email }) => {
+    setRegisteredName(name);
+    setRegisteredEmail(email);
+    setError('');
+    setStep(2);
+  };
+
+  const handleVerified = (supabaseUser) => {
+    setUser({
+      id: supabaseUser?.id,
+      name: registeredName,
+      email: registeredEmail,
+      initials: registeredName.substring(0, 2).toUpperCase(),
+      avatarColor: '#3B9B9B',
+      trustScore: 0,
+      kycStatus: 'pending',
+    });
+    setIsLoggedIn(true);
+    navigate('/dashboard');
+  };
+
+  const handleResend = async () => {
+    setError('');
+    const { error: err } = await supabase.auth.signInWithOtp({
+      email: registeredEmail,
+      options: { shouldCreateUser: false }
+    });
+    if (err) setError(err.message);
+    else alert('OTP resent! Check your Gmail inbox.');
+  };
+
+  return (
+    <div style={{
+      minHeight: '100vh',
+      background: 'linear-gradient(135deg, #F0F9F9 0%, #F8FAFB 60%, #FDF3E0 100%)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px',
+    }}>
+      <div style={{
+        background: '#FFFFFF', borderRadius: '20px', padding: '40px', width: '100%',
+        maxWidth: '440px', boxShadow: '0 8px 40px rgba(26,43,61,0.10)', border: '1px solid #E8EDF2',
+      }}>
+
+        {/* Logo */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '28px' }}>
+          <svg width="36" height="36" viewBox="0 0 32 32" fill="none">
             <circle cx="16" cy="16" r="14" stroke="#3B9B9B" strokeWidth="2" />
             <path d="M10 16.5C10 13.46 12.46 11 15.5 11H22l-3 3h-3.5C12.91 14 12 14.91 12 16.5S12.91 19 14.5 19H18l3 3H14.5C12.46 22 10 19.54 10 16.5Z" fill="#3B9B9B" />
             <circle cx="22" cy="11" r="2" fill="#F4845F" />
             <circle cx="22" cy="22" r="2" fill="#E8A838" />
           </svg>
-          <span className="auth-logo-name">TrustChain</span>
+          <span style={{ fontWeight: 700, fontSize: '18px', color: '#1A2B3D' }}>TrustChain</span>
         </div>
 
-        <StepIndicator steps={STEPS} current={onboardingStep} />
-
-        {/* Step 1 */}
-        {onboardingStep === 1 && (
-          <form onSubmit={handleStep1} className="auth-form">
-            <h1 className="auth-title">Create your account</h1>
-            <p className="auth-subtitle">No bank account or paperwork needed.</p>
-
-            <div className="form-group mt-4">
-              <label className="form-label" htmlFor="signup-name">Full name</label>
-              <input className="form-control" id="signup-name" type="text" placeholder="e.g. Riya Kulkarni" value={name} onChange={e => setName(e.target.value)} required />
+        {/* Step progress bar */}
+        <div style={{ display: 'flex', gap: '6px', marginBottom: '28px' }}>
+          {['Create Account', 'Verify Gmail'].map((label, i) => (
+            <div key={label} style={{ flex: 1 }}>
+              <div style={{ height: '3px', borderRadius: '3px', background: i + 1 <= step ? '#3B9B9B' : '#E8EDF2', transition: 'background 0.3s ease', marginBottom: '5px' }} />
+              <div style={{ fontSize: '10px', color: i + 1 <= step ? '#3B9B9B' : '#9AABB8', fontWeight: i + 1 === step ? 700 : 400 }}>{label}</div>
             </div>
-
-            <div className="form-group">
-              <label className="form-label">Web3 Wallet</label>
-              {!account ? (
-                <button type="button" className="btn btn-outline w-full" onClick={connectWallet}>
-                  <svg viewBox="0 0 32 32" fill="none" width="16" height="16" aria-hidden="true" style={{marginRight: '8px', verticalAlign: 'middle'}}>
-                    <path d="M29.5 12L20 4.5l-4-3-4 3-9.5 7.5L5 21l3 7.5L16 29l8-1.5 3-7.5 2.5-9z" fill="#F6851B" stroke="#F6851B" strokeWidth="1" strokeLinejoin="round"/>
-                  </svg>
-                  Connect MetaMask
-                </button>
-              ) : (
-                <div className="form-control" style={{background: 'var(--color-bg)', color: 'var(--color-success)', cursor: 'default'}}>
-                  Connected: {account.substring(0,6)}...{account.substring(38)}
-                </div>
-              )}
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">I want to</label>
-              <div className="role-toggle" role="radiogroup" aria-label="Choose role">
-                <button
-                  type="button"
-                  role="radio"
-                  aria-checked={role === 'borrower'}
-                  className={`role-btn ${role === 'borrower' ? 'active' : ''}`}
-                  id="role-borrower"
-                  onClick={() => setRole('borrower')}
-                >
-                  <span className="role-icon">💸</span>
-                  <span className="role-label">Borrow</span>
-                  <span className="role-sub text-xs text-muted">Get a loan</span>
-                </button>
-                <button
-                  type="button"
-                  role="radio"
-                  aria-checked={role === 'lender'}
-                  className={`role-btn ${role === 'lender' ? 'active' : ''}`}
-                  id="role-lender"
-                  onClick={() => setRole('lender')}
-                >
-                  <span className="role-icon">🏦</span>
-                  <span className="role-label">Lend</span>
-                  <span className="role-sub text-xs text-muted">Earn returns</span>
-                </button>
-              </div>
-            </div>
-
-            <button type="submit" className="btn btn-primary w-full mt-6" id="signup-step1-btn">
-              Continue →
-            </button>
-          </form>
-        )}
-
-        {/* Step 2 */}
-        {onboardingStep === 2 && (
-          <form onSubmit={handleStep2} className="auth-form">
-            <h1 className="auth-title">Verify your identity</h1>
-            <p className="auth-subtitle">Choose any document you have. We accept non-standard IDs.</p>
-
-            <div className="doc-type-grid" role="radiogroup" aria-label="Choose document type">
-              {[
-                { id: 'aadhaar', label: 'Aadhaar Card', icon: '🪪' },
-                { id: 'voter', label: 'Voter ID', icon: '🗳️' },
-                { id: 'ration', label: 'Ration Card', icon: '📋' },
-                { id: 'utility', label: 'Utility Bill', icon: '💡' },
-              ].map(doc => (
-                <button
-                  key={doc.id}
-                  type="button"
-                  role="radio"
-                  aria-checked={docType === doc.id}
-                  className={`doc-btn ${docType === doc.id ? 'active' : ''}`}
-                  id={`doc-${doc.id}`}
-                  onClick={() => setDocType(doc.id)}
-                >
-                  <span className="doc-icon">{doc.icon}</span>
-                  <span className="doc-label">{doc.label}</span>
-                </button>
-              ))}
-            </div>
-
-            {docType && (
-              <div className="upload-zone mt-4" role="button" tabIndex="0" aria-label="Upload document photo">
-                <svg width="32" height="32" viewBox="0 0 32 32" fill="none" stroke="var(--color-primary)" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
-                  <path d="M16 21V11M11 16l5-5 5 5" />
-                  <rect x="4" y="4" width="24" height="24" rx="4" />
-                </svg>
-                <div className="upload-text">Tap to upload photo of your {docType}</div>
-                <div className="upload-sub text-xs text-muted">JPEG, PNG · Max 5MB</div>
-              </div>
-            )}
-
-            <div className="flex gap-3 mt-6">
-              <button type="button" className="btn btn-outline flex-1" onClick={() => setOnboardingStep(1)}>← Back</button>
-              <button type="submit" className="btn btn-primary flex-1" id="signup-step2-btn" disabled={!docType}>
-                Verify →
-              </button>
-            </div>
-            <div className="auth-hint text-xs text-muted text-center mt-3">
-              🔒 Your documents are encrypted and never shared
-            </div>
-          </form>
-        )}
-
-        {/* Step 3 */}
-        {onboardingStep === 3 && (
-          <div className="auth-form text-center">
-            <div className="verified-badge-anim">✓</div>
-            <h1 className="auth-title mt-4">Identity Verified!</h1>
-            <p className="auth-subtitle">Your Trust Score has been generated based on your profile.</p>
-
-            <div className="gauge-center-wrapper">
-              <TrustGaugeLarge score={generatedScore} size={200} />
-            </div>
-
-            <div className="score-breakdown-row">
-              <div className="score-factor">
-                <span className="pill pill-success text-xs">+30</span>
-                <div className="text-xs text-muted mt-1">ID Verified</div>
-              </div>
-              <div className="score-factor">
-                <span className="pill pill-warning text-xs">+22</span>
-                <div className="text-xs text-muted mt-1">New member</div>
-              </div>
-              <div className="score-factor">
-                <span className="pill text-xs" style={{ background: 'var(--color-bg)', color: 'var(--color-text-muted)', border: '1px solid var(--color-border)' }}>+20</span>
-                <div className="text-xs text-muted mt-1">Community</div>
-              </div>
-            </div>
-
-            <p className="text-sm text-muted mt-4">Your score will grow as you repay on time and collect community vouchers.</p>
-
-            <button className="btn btn-primary w-full mt-6" id="goto-dashboard-btn" onClick={handleFinish}>
-              Go to Dashboard →
-            </button>
-          </div>
-        )}
-
-        <div className="auth-footer-link">
-          Already have an account? <a href="/login">Sign in →</a>
+          ))}
         </div>
+
+        {/* Step heading */}
+        <h1 style={{ fontSize: '24px', fontWeight: 800, color: '#1A2B3D', marginBottom: '4px' }}>
+          {step === 1 ? 'Create your account' : 'Verify your email'}
+        </h1>
+        <p style={{ fontSize: '14px', color: '#6B7B8D', marginBottom: '24px' }}>
+          {step === 1 ? 'Join the decentralized trust economy.' : 'Enter the OTP sent to your Gmail.'}
+        </p>
+
+        {step === 1 && (
+          <StepRegister
+            onSuccess={handleRegistered}
+            loading={loading} setLoading={setLoading}
+            error={error} setError={setError}
+          />
+        )}
+
+        {step === 2 && (
+          <StepVerifyOtp
+            email={registeredEmail}
+            onVerified={handleVerified}
+            onResend={handleResend}
+            loading={loading} setLoading={setLoading}
+            error={error} setError={setError}
+          />
+        )}
+
+        {step === 1 && (
+          <>
+            <div style={{ textAlign: 'center', marginTop: '20px', fontSize: '13px', color: '#6B7B8D' }}>
+              Already have an account?{' '}
+              <Link to="/login" style={{ color: '#3B9B9B', fontWeight: 600 }}>Sign in &rarr;</Link>
+            </div>
+            <div style={{ textAlign: 'center', marginTop: '10px', fontSize: '12px', color: '#9AABB8' }}>
+              &#128274; Your data is encrypted end-to-end
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

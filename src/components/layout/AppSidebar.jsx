@@ -1,6 +1,7 @@
 import React, { useContext } from 'react';
-import { NavLink } from 'react-router-dom';
+import { NavLink, useNavigate } from 'react-router-dom';
 import { Web3Context } from '../../context/Web3Context';
+import { AppContext } from '../../context/AppContext';
 
 const NavItem = ({ to, icon, label, badge, onClick }) => (
   <NavLink
@@ -20,10 +21,14 @@ const NavItem = ({ to, icon, label, badge, onClick }) => (
 export const AppSidebar = ({ isOpen, setSidebarOpen }) => {
   const close = () => { if (window.innerWidth <= 768) setSidebarOpen(false); };
   const { account, trustScore } = useContext(Web3Context);
+  const { kycCompleted, user } = useContext(AppContext);
+  const navigate = useNavigate();
 
-  const shortAddr  = account ? `${account.slice(0, 6)}…${account.slice(-4)}` : 'Not connected';
-  const initials   = account ? account.slice(2, 4).toUpperCase() : '??';
-  const scoreColor = trustScore >= 80 ? '#3B9B9B' : trustScore >= 60 ? '#E8A838' : '#E85A5A';
+  // Prefer Supabase user name if available, else fall back to wallet address display
+  const displayName  = user?.name || (account ? `${account.slice(0, 6)}…${account.slice(-4)}` : 'Not connected');
+  const initials     = user?.initials || (account ? account.slice(2, 4).toUpperCase() : '??');
+  const avatarColor  = user?.avatarColor || '#3B9B9B';
+  const scoreColor   = trustScore >= 80 ? '#3B9B9B' : trustScore >= 60 ? '#E8A838' : '#E85A5A';
 
   return (
     <aside className={`app-sidebar ${isOpen ? 'open' : ''}`} id="app-sidebar" role="navigation" aria-label="App navigation">
@@ -37,20 +42,38 @@ export const AppSidebar = ({ isOpen, setSidebarOpen }) => {
         <div className="sidebar-logo"><span>TrustChain</span></div>
       </div>
 
-      {/* Live wallet user */}
+      {/* User info */}
       <div className="sidebar-user">
-        <div className="avatar avatar-lg" style={{ background: '#3B9B9B' }}>{initials}</div>
+        <div className="avatar avatar-lg" style={{ background: avatarColor }}>{initials}</div>
         <div className="sidebar-user-info">
-          <div className="sidebar-user-name" style={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>{shortAddr}</div>
+          <div className="sidebar-user-name" style={{ fontFamily: user?.name ? 'inherit' : 'monospace', fontSize: '0.8rem' }}>{displayName}</div>
           {trustScore !== null ? (
             <div className="sidebar-user-pod">
               <span style={{ color: scoreColor, fontWeight: 700 }}>⛓️ Score: {trustScore}</span>
             </div>
           ) : (
-            <div className="sidebar-user-pod">☀️ Connect wallet to begin</div>
+            <div className="sidebar-user-pod">
+              {kycCompleted ? '✅ KYC Verified' : '⚠️ KYC Pending'}
+            </div>
           )}
         </div>
       </div>
+
+      {/* KYC Banner */}
+      {!kycCompleted && (
+        <button
+          onClick={() => { navigate('/kyc'); close(); }}
+          style={{
+            margin: '0 var(--sp-4) var(--sp-3)', width: 'calc(100% - 2 * var(--sp-4))',
+            background: '#FDE8C0', color: '#B45309', border: 'none', borderRadius: '10px',
+            padding: '10px 12px', fontSize: '12px', fontWeight: 600, cursor: 'pointer',
+            textAlign: 'left', lineHeight: 1.4
+          }}
+          id="kyc-banner-btn"
+        >
+          ⚠ Complete KYC to unlock loans
+        </button>
+      )}
 
       <nav className="sidebar-nav" aria-label="App sections">
         {/* Main */}

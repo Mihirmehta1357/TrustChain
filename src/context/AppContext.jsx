@@ -4,10 +4,13 @@ import { MOCK_USER, MOCK_ACTIVE_LOAN, MOCK_LENDER } from '../data/mockData';
 export const AppContext = createContext();
 
 export const AppProvider = ({ children }) => {
-  // Auth state
-  const [user, setUser] = useState(MOCK_USER);
+  // Auth state - Defaults to empty, populated from Supabase via LoginPage/SignUpPage
+  const [user, setUser] = useState({});
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [onboardingStep, setOnboardingStep] = useState(1);
+
+  // KYC status - derived from user.kycStatus
+  const kycCompleted = user?.kycStatus === 'completed';
 
   // Trust score (derived from verification, streak, vouchers)
   const [streak, setStreak] = useState(3);
@@ -54,6 +57,7 @@ export const AppProvider = ({ children }) => {
     user, setUser,
     isLoggedIn, setIsLoggedIn,
     onboardingStep, setOnboardingStep,
+    kycCompleted,
 
     // Trust
     streak, setStreak,
