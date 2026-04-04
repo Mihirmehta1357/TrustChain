@@ -5,6 +5,7 @@ import { AppContext } from '../../context/AppContext';
 import { fetchOpenLoans } from '../../utils/supabaseService';
 import { MOCK_LOANS } from '../../data/mockData';
 import { LoanCard } from '../../components/shared/SharedComponents';
+import { ethers } from 'ethers';
 
 // ─── Filter defaults ──────────────────────────────────────────────────────────
 const TENURE_OPTIONS = [1, 3, 6, 12, 24];
@@ -143,9 +144,9 @@ export const BrowseLoansPage = () => {
           if (Number(lData.status) === 0) {
             let score = 50;
             try { const u = await contract.users(lData.borrower); score = Number(u.trustScore); } catch (_) {}
-            const principal    = Number(lData.principal);
+            const principal    = Number(ethers.formatEther(lData.principal));
             const interestRate = Number(lData.interestRate);
-            const totalOwed    = Number(lData.totalOwed);
+            const totalOwed    = Number(ethers.formatEther(lData.totalOwed));
             // Generate deterministic-looking demo metadata from address
             const seed = parseInt(lData.borrower.slice(2, 6), 16);
             arr.push({

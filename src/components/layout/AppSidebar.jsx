@@ -3,6 +3,7 @@ import { NavLink, useNavigate } from 'react-router-dom';
 import { Web3Context } from '../../context/Web3Context';
 import { AppContext } from '../../context/AppContext';
 import { supabase } from '../../utils/supabaseClient';
+import { useToast } from '../shared/ToastProvider';
 
 const NavItem = ({ to, icon, label, badge, onClick }) => (
   <NavLink
@@ -21,9 +22,16 @@ const NavItem = ({ to, icon, label, badge, onClick }) => (
 
 export const AppSidebar = ({ isOpen, setSidebarOpen }) => {
   const close = () => { if (window.innerWidth <= 768) setSidebarOpen(false); };
-  const { account, trustScore } = useContext(Web3Context);
+  const { account, trustScore, isRegistered, registerOnChain, registering } = useContext(Web3Context);
   const { kycCompleted, user } = useContext(AppContext);
   const navigate = useNavigate();
+  const showToast = useToast();
+
+  const handleRegister = async () => {
+    const ok = await registerOnChain();
+    if (ok && showToast) showToast('✅ Registered on-chain! TrustScore = 50', 'success');
+    else if (!ok && showToast) showToast('Registration rejected or failed. Try again.', 'error');
+  };
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -78,6 +86,27 @@ export const AppSidebar = ({ isOpen, setSidebarOpen }) => {
           id="kyc-banner-btn"
         >
           ⚠ Complete KYC to unlock loans
+        </button>
+      )}
+
+      {/* On-chain Registration Banner — shown when wallet connected but not registered */}
+      {account && !isRegistered && (
+        <button
+          onClick={handleRegister}
+          disabled={registering}
+          style={{
+            margin: '0 var(--sp-4) var(--sp-3)', width: 'calc(100% - 2 * var(--sp-4))',
+            background: registering ? '#E0F4F4' : 'linear-gradient(135deg, #3B9B9B22, #185FA511)',
+            color: '#185FA5', border: '1px solid #3B9B9B55', borderRadius: '10px',
+            padding: '10px 12px', fontSize: '12px', fontWeight: 600, cursor: registering ? 'wait' : 'pointer',
+            textAlign: 'left', lineHeight: 1.5, opacity: registering ? 0.7 : 1,
+          }}
+          id="register-onchain-btn"
+        >
+          {registering ? '⏳ Registering on blockchain…' : '⛓️ Activate your on-chain identity'}
+          <div style={{ fontWeight: 400, fontSize: '11px', marginTop: 2 }}>
+            {registering ? 'Please confirm in MetaMask' : 'One-time setup · Unlocks borrowing & lending'}
+          </div>
         </button>
       )}
 

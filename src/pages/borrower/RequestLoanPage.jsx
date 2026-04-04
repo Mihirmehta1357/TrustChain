@@ -4,11 +4,12 @@ import { AppContext } from '../../context/AppContext';
 import { Web3Context } from '../../context/Web3Context';
 import { useToast } from '../../components/shared/ToastProvider';
 import { calcLoan } from '../../utils/formatters';
+import { ethers } from 'ethers';
 import { createLoan, createTransaction } from '../../utils/supabaseService';
 
 export const RequestLoanPage = () => {
   const { podStrength, verification, kycCompleted, user, trustScore } = useContext(AppContext);
-  const { contract, account } = useContext(Web3Context);
+  const { contract, account, isRegistered } = useContext(Web3Context);
   const showToast = useToast();
   const navigate = useNavigate();
 
@@ -52,8 +53,13 @@ export const RequestLoanPage = () => {
     try {
       // 1. Try blockchain transaction if wallet connected
       if (contract && account) {
+        if (!isRegistered) {
+          showToast('Please activate your on-chain identity first! Click the banner in the left sidebar.', 'error');
+          setSubmitting(false);
+          return;
+        }
         showToast('Please confirm the transaction in MetaMask...', 'info');
-        const tx = await contract.requestLoan(amount, purpose);
+        const tx = await contract.requestLoan(ethers.parseEther(amount.toString()), purpose);
         showToast('Waiting for blockchain confirmation...', 'info');
         await tx.wait();
         showToast('Loan request written to the blockchain! 🎉', 'success');

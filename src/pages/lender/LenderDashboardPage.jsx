@@ -1,5 +1,6 @@
 import React, { useContext, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { ethers } from 'ethers';
 import { AppContext } from '../../context/AppContext';
 import { Web3Context } from '../../context/Web3Context';
 import { useToast } from '../../components/shared/ToastProvider';
@@ -42,9 +43,9 @@ export const LenderDashboardPage = () => {
           myLoans.push({
             id:           Number(l.id),
             borrower:     l.borrower,
-            principal:    Number(l.principal),
+            principal:    Number(ethers.formatEther(l.principal)),
             interestRate: Number(l.interestRate),
-            totalOwed:    Number(l.totalOwed),
+            totalOwed:    Number(ethers.formatEther(l.totalOwed)),
             purpose:      l.purpose,
             status:       Number(l.status),
           });

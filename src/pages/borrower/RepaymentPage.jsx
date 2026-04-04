@@ -27,9 +27,9 @@ export const RepaymentPage = () => {
           result.push({
             id: Number(l.id),
             realId: Number(l.id),
-            principal: Number(l.principal),
+            principal: Number(ethers.formatEther(l.principal)),
             interestRate: Number(l.interestRate),
-            totalOwed: Number(l.totalOwed),
+            totalOwed: Number(ethers.formatEther(l.totalOwed)),
             funder: l.funder,
             purpose: l.purpose,
             source: 'chain',
@@ -95,7 +95,7 @@ export const RepaymentPage = () => {
     }
     setRepaying(`chain-${loan.id}`);
     try {
-      if (loan.source === 'chain') {
+      if (loan.source === 'chain' || loan.funder) {
         const tokenAmount = ethers.parseUnits(loan.totalOwed.toString(), 18);
 
         if (rtkContract) {
@@ -106,14 +106,13 @@ export const RepaymentPage = () => {
           await approveTx.wait();
         }
 
-        showToast('Please confirm the repayment transaction in MetaMask…', 'info');
-        const tx = await contract.repayLoan(loan.realId);
-        showToast('Waiting for blockchain confirmation…', 'info');
+        showToast(`Confirm repayment of ₹${loan.totalOwed.toLocaleString('en-IN')} in MetaMask…`, 'info');
+        const tx = await contract.repayLoan(loan.realId || loan.id);
+        showToast('Repayment submitted — waiting for blockchain confirmation…', 'info');
         await tx.wait();
       } else {
         await handleDbRepay(loan);
       }
-      
       showToast('🎉 Loan fully repaid! Your TrustScore increased by +10!', 'success');
       
       if (user?.id) {

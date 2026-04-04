@@ -1,18 +1,19 @@
 {
   "_format": "hh-sol-cache-2",
   "files": {
-    "D:\\TrustChain\\contracts\\RupeeTrustToken.sol": {
-      "lastModificationDate": 1775334308936,
-      "contentHash": "8dc4ff6b52452f2c2c5043462f4835f1",
+    "D:\\ALL_FOLDERS\\NAKSHATRA_OK\\trustchain-react\\contracts\\RupeeTrustToken.sol": {
+      "lastModificationDate": 1775328777345,
+      "contentHash": "8b84cea4bca298e2431bd667e268f5d3",
       "sourceName": "contracts/RupeeTrustToken.sol",
       "solcConfig": {
         "version": "0.8.24",
         "settings": {
-          "evmVersion": "paris",
           "optimizer": {
-            "enabled": false,
+            "enabled": true,
             "runs": 200
           },
+          "viaIR": true,
+          "evmVersion": "paris",
           "outputSelection": {
             "*": {
               "*": [
@@ -40,18 +41,19 @@
         "RupeeTrustToken"
       ]
     },
-    "D:\\TrustChain\\node_modules\\@openzeppelin\\contracts\\token\\ERC20\\ERC20.sol": {
-      "lastModificationDate": 1775338861580,
+    "D:\\ALL_FOLDERS\\NAKSHATRA_OK\\trustchain-react\\node_modules\\@openzeppelin\\contracts\\token\\ERC20\\ERC20.sol": {
+      "lastModificationDate": 1775338070847,
       "contentHash": "d15c4d05583536e080f1960ab282772d",
       "sourceName": "@openzeppelin/contracts/token/ERC20/ERC20.sol",
       "solcConfig": {
         "version": "0.8.24",
         "settings": {
-          "evmVersion": "paris",
           "optimizer": {
-            "enabled": false,
+            "enabled": true,
             "runs": 200
           },
+          "viaIR": true,
+          "evmVersion": "paris",
           "outputSelection": {
             "*": {
               "*": [
@@ -81,18 +83,19 @@
         "ERC20"
       ]
     },
-    "D:\\TrustChain\\node_modules\\@openzeppelin\\contracts\\access\\Ownable.sol": {
-      "lastModificationDate": 1775338861647,
+    "D:\\ALL_FOLDERS\\NAKSHATRA_OK\\trustchain-react\\node_modules\\@openzeppelin\\contracts\\access\\Ownable.sol": {
+      "lastModificationDate": 1775338071049,
       "contentHash": "d3c790edc9ccf808a17c5a6cd13614fd",
       "sourceName": "@openzeppelin/contracts/access/Ownable.sol",
       "solcConfig": {
         "version": "0.8.24",
         "settings": {
-          "evmVersion": "paris",
           "optimizer": {
-            "enabled": false,
+            "enabled": true,
             "runs": 200
           },
+          "viaIR": true,
+          "evmVersion": "paris",
           "outputSelection": {
             "*": {
               "*": [
@@ -119,18 +122,19 @@
         "Ownable"
       ]
     },
-    "D:\\TrustChain\\node_modules\\@openzeppelin\\contracts\\token\\ERC20\\IERC20.sol": {
-      "lastModificationDate": 1775338861626,
+    "D:\\ALL_FOLDERS\\NAKSHATRA_OK\\trustchain-react\\node_modules\\@openzeppelin\\contracts\\token\\ERC20\\IERC20.sol": {
+      "lastModificationDate": 1775338070961,
       "contentHash": "9261adf6457863de3e9892f51317ec89",
       "sourceName": "@openzeppelin/contracts/token/ERC20/IERC20.sol",
       "solcConfig": {
         "version": "0.8.24",
         "settings": {
-          "evmVersion": "paris",
           "optimizer": {
-            "enabled": false,
+            "enabled": true,
             "runs": 200
           },
+          "viaIR": true,
+          "evmVersion": "paris",
           "outputSelection": {
             "*": {
               "*": [
@@ -155,18 +159,19 @@
         "IERC20"
       ]
     },
-    "D:\\TrustChain\\node_modules\\@openzeppelin\\contracts\\interfaces\\draft-IERC6093.sol": {
-      "lastModificationDate": 1775338861564,
+    "D:\\ALL_FOLDERS\\NAKSHATRA_OK\\trustchain-react\\node_modules\\@openzeppelin\\contracts\\interfaces\\draft-IERC6093.sol": {
+      "lastModificationDate": 1775338070807,
       "contentHash": "bcc76f4747d56c28c40ae272ef3470a6",
       "sourceName": "@openzeppelin/contracts/interfaces/draft-IERC6093.sol",
       "solcConfig": {
         "version": "0.8.24",
         "settings": {
-          "evmVersion": "paris",
           "optimizer": {
-            "enabled": false,
+            "enabled": true,
             "runs": 200
           },
+          "viaIR": true,
+          "evmVersion": "paris",
           "outputSelection": {
             "*": {
               "*": [
@@ -193,18 +198,19 @@
         "IERC721Errors"
       ]
     },
-    "D:\\TrustChain\\node_modules\\@openzeppelin\\contracts\\utils\\Context.sol": {
-      "lastModificationDate": 1775338861554,
+    "D:\\ALL_FOLDERS\\NAKSHATRA_OK\\trustchain-react\\node_modules\\@openzeppelin\\contracts\\utils\\Context.sol": {
+      "lastModificationDate": 1775338070784,
       "contentHash": "67bfbc07588eb8683b3fd8f6f909563e",
       "sourceName": "@openzeppelin/contracts/utils/Context.sol",
       "solcConfig": {
         "version": "0.8.24",
         "settings": {
-          "evmVersion": "paris",
           "optimizer": {
-            "enabled": false,
+            "enabled": true,
             "runs": 200
           },
+          "viaIR": true,
+          "evmVersion": "paris",
           "outputSelection": {
             "*": {
               "*": [
@@ -229,18 +235,19 @@
         "Context"
       ]
     },
-    "D:\\TrustChain\\node_modules\\@openzeppelin\\contracts\\token\\ERC20\\extensions\\IERC20Metadata.sol": {
-      "lastModificationDate": 1775338861627,
+    "D:\\ALL_FOLDERS\\NAKSHATRA_OK\\trustchain-react\\node_modules\\@openzeppelin\\contracts\\token\\ERC20\\extensions\\IERC20Metadata.sol": {
+      "lastModificationDate": 1775338070963,
       "contentHash": "513778b30d2750f5d2b9b19bbcf748a5",
       "sourceName": "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol",
       "solcConfig": {
         "version": "0.8.24",
         "settings": {
-          "evmVersion": "paris",
           "optimizer": {
-            "enabled": false,
+            "enabled": true,
             "runs": 200
           },
+          "viaIR": true,
+          "evmVersion": "paris",
           "outputSelection": {
             "*": {
               "*": [
@@ -267,18 +274,19 @@
         "IERC20Metadata"
       ]
     },
-    "D:\\TrustChain\\contracts\\TrustChain.sol": {
-      "lastModificationDate": 1775338816125,
-      "contentHash": "d1bd28e2f6e93b4efcda0412256de07d",
+    "D:\\ALL_FOLDERS\\NAKSHATRA_OK\\trustchain-react\\contracts\\TrustChain.sol": {
+      "lastModificationDate": 1775340447609,
+      "contentHash": "475d663d4d1ad9bc1e88debea3ba4b10",
       "sourceName": "contracts/TrustChain.sol",
       "solcConfig": {
         "version": "0.8.24",
         "settings": {
-          "evmVersion": "paris",
           "optimizer": {
-            "enabled": false,
+            "enabled": true,
             "runs": 200
           },
+          "viaIR": true,
+          "evmVersion": "paris",
           "outputSelection": {
             "*": {
               "*": [
