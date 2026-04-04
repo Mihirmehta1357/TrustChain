@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+
 /**
  * @title TrustChain
  * @notice Uncollateralized P2P lending with on-chain interest, 
@@ -48,6 +50,7 @@ contract TrustChain {
     mapping(address  => mapping(address => bool))      public hasEndorsed; // endorser → endorsee → bool
 
     uint256 public loanCounter;
+    IERC20 public rtkToken;
 
     // TrustScore reward config (owner-configurable in production)
     uint256 public constant REPAY_SCORE_REWARD    = 10;
@@ -70,6 +73,13 @@ contract TrustChain {
     modifier onlyRegistered() {
         require(users[msg.sender].isRegistered, "TrustChain: caller not registered");
         _;
+    }
+
+    // ─── Constructor ──────────────────────────────────────────────────────────
+
+    constructor(address _rtkAddress) {
+        require(_rtkAddress != address(0), "TrustChain: invalid token address");
+        rtkToken = IERC20(_rtkAddress);
     }
 
     // ─── User Functions ───────────────────────────────────────────────────────
@@ -138,26 +148,24 @@ contract TrustChain {
 
     /**
      * @notice Borrower repays principal + interest to the funder.
-     * @dev    Send exactly loan.totalOwed as msg.value.
+     * @dev    Transfers RTK tokens equivalent to loan.totalOwed back to funder.
      */
-    function repayLoan(uint256 _loanId) external payable onlyRegistered {
+    function repayLoan(uint256 _loanId) external onlyRegistered {
         Loan storage loan = loans[_loanId];
 
         require(loan.status  == LoanStatus.Funded,  "TrustChain: loan not active");
         require(msg.sender   == loan.borrower,       "TrustChain: only borrower can repay");
-        require(msg.value    == loan.totalOwed,      "TrustChain: must send exact amount owed");
 
         loan.status = LoanStatus.Repaid;
 
-        // Route repayment directly to funder (no intermediate hold)
-        (bool ok, ) = payable(loan.funder).call{value: msg.value}("");
-        require(ok, "TrustChain: transfer to funder failed");
+        // Transfer RTK from Borrower back to Lender (requires prior approve() from borrower)
+        require(rtkToken.transferFrom(msg.sender, loan.funder, loan.totalOwed), "TrustChain: RTK repayment transfer failed");
 
         // Reward borrower TrustScore
         users[msg.sender].trustScore  += REPAY_SCORE_REWARD;
         users[msg.sender].loansRepaid += 1;
 
-        emit LoanRepaid(_loanId, msg.sender, msg.value);
+        emit LoanRepaid(_loanId, msg.sender, loan.totalOwed);
     }
 
     // ─── Agreement Functions ──────────────────────────────────────────────────
@@ -205,15 +213,14 @@ contract TrustChain {
 
     /**
      * @notice Fund a pending loan after BOTH parties have signed the agreement.
-     *         Send exactly loan.principal as msg.value.
+     * @dev    Transfers RTK from lender to borrower. Requires prior approve() from lender.
      */
-    function fundLoan(uint256 _loanId) external payable onlyRegistered {
+    function fundLoan(uint256 _loanId) external onlyRegistered {
         Loan storage loan = loans[_loanId];
 
         require(loan.status         == LoanStatus.Pending,  "TrustChain: loan not available");
         require(msg.sender          != loan.borrower,        "TrustChain: cannot fund own loan");
         require(msg.sender          == loan.proposedFunder,  "TrustChain: only the proposing lender can fund");
-        require(msg.value           == loan.principal,       "TrustChain: send exact principal");
 
         // ── Agreement guard: both parties must have signed ──────────────────
         require(loan.lenderSigned   && loan.borrowerSigned,  "TrustChain: agreement not fully signed by both parties");
@@ -222,14 +229,13 @@ contract TrustChain {
         loan.funder   = msg.sender;
         loan.fundedAt = block.timestamp;
 
-        // Route principal directly to borrower
-        (bool ok, ) = payable(loan.borrower).call{value: msg.value}("");
-        require(ok, "TrustChain: transfer to borrower failed");
+        // Transfer RTK from Lender to Borrower
+        require(rtkToken.transferFrom(msg.sender, loan.borrower, loan.principal), "TrustChain: RTK funding transfer failed");
 
         // Small trust reward for lenders
         users[msg.sender].trustScore += FUND_SCORE_REWARD;
 
-        emit LoanFunded(_loanId, msg.sender, msg.value);
+        emit LoanFunded(_loanId, msg.sender, loan.principal);
     }
 
     // ─── Community / Endorsement ───────────────────────────────────────────────

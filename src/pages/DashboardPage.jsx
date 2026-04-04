@@ -2,7 +2,7 @@ import React, { useContext, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../context/AppContext';
 import { Web3Context } from '../context/Web3Context';
-import { MOCK_ACTIVITY } from '../data/mockData';
+import { fetchAllTransactions, fetchUserLoans, timeAgo } from '../utils/supabaseService';
 import { TrustGaugeLarge } from '../components/shared/SharedComponents';
 import { useScrollAnimation } from '../hooks/useScrollAnimation';
 import { LoanAgreementModal } from '../components/shared/LoanAgreementModal';
@@ -14,20 +14,24 @@ const activityTypeLabel = (type) => {
   if (type === 'funded')    return { label: 'Funded',     color: '#185FA5',              bg: '#E6F1FB' };
   if (type === 'requested') return { label: 'Requested',  color: 'var(--color-warning)', bg: '#FDE8C0' };
   if (type === 'endorsed')  return { label: 'Endorsed',   color: '#3B9B9B',              bg: '#E0F4F4' };
+  if (type === 'vouched')   return { label: 'Vouched',    color: '#534AB7',              bg: '#EEEDFE' };
   return { label: 'Activity', color: 'var(--color-text-muted)', bg: 'var(--color-bg)' };
 };
 
+const typeIcon = { repaid: '✓', funded: '₹', requested: '📋', vouched: '🤝', endorsed: '🌟', verified: '🪪' };
+
 export const DashboardPage = () => {
-  const { trustScore: appScore, activeLoan } = useContext(AppContext);
+  const { user, trustScore } = useContext(AppContext);
   const { contract, account, trustScore: onChainScore } = useContext(Web3Context);
   const navigate  = useNavigate();
   const showToast = useToast();
   useScrollAnimation('.animate-fade-in-up');
 
-  // Live on-chain borrower data
-  const [myLoans, setMyLoans]             = useState([]);
-  const [liveLoading, setLiveLoading]     = useState(true);
-  const [agreementStatuses, setAgreementStatuses] = useState({}); // loanId → {lenderSigned, borrowerSigned, proposedFunder}
+  // ── Supabase loans ─────────────────────────────────────────────────────────
+  const [dbLoans, setDbLoans] = useState([]);
+  const [dbActivity, setDbActivity] = useState([]);
+  const [dbLoading, setDbLoading] = useState(true);
+  const [agreementStatuses, setAgreementStatuses] = useState({});
 
   // Agreement modal state for borrower countersign
   const [agreementModalOpen, setAgreementModalOpen] = useState(false);
@@ -35,8 +39,26 @@ export const DashboardPage = () => {
   const [signingAgreement, setSigningAgreement]     = useState(false);
 
   useEffect(() => {
+    const load = async () => {
+      setDbLoading(true);
+      const [loans, txns] = await Promise.all([
+        user?.id ? fetchUserLoans(user.id) : [],
+        fetchAllTransactions(10),
+      ]);
+      setDbLoans(loans);
+      setDbActivity(txns);
+      setDbLoading(false);
+    };
+    load();
+  }, [user?.id]);
+
+  // ── On-chain loans ─────────────────────────────────────────────────────────
+  const [chainLoans, setChainLoans] = useState([]);
+  const [chainLoading, setChainLoading] = useState(true);
+
+  useEffect(() => {
     const fetchMyLoans = async () => {
-      if (!contract || !account) { setLiveLoading(false); return; }
+      if (!contract || !account) { setChainLoading(false); return; }
       try {
         const count = await contract.getLoanCount();
         const result = [];
@@ -45,14 +67,15 @@ export const DashboardPage = () => {
           const l = await contract.loans(i);
           if (l.borrower.toLowerCase() === account.toLowerCase()) {
             const loanObj = {
-              id:           Number(l.id),
-              principal:    Number(ethers.formatEther(l.principal)),
+              id: Number(l.id),
+              principal: Number(ethers.formatEther(l.principal)),
               interestRate: Number(l.interestRate),
-              totalOwed:    Number(ethers.formatEther(l.totalOwed)),
-              status:       Number(l.status),
-              purpose:      l.purpose,
-              funder:       l.funder,
-              borrower:     l.borrower,
+              totalOwed: Number(ethers.formatEther(l.totalOwed)),
+              status: Number(l.status),
+              purpose: l.purpose,
+              funder: l.funder,
+              borrower: l.borrower,
+              source: 'chain',
             };
             result.push(loanObj);
             // Fetch agreement status for pending/funded loans
@@ -67,10 +90,10 @@ export const DashboardPage = () => {
             } catch (_) { /* contract not redeployed yet */ }
           }
         }
-        setMyLoans(result.reverse());
+        setChainLoans(result.reverse());
         setAgreementStatuses(statuses);
       } catch (e) { console.error(e); }
-      finally { setLiveLoading(false); }
+      finally { setChainLoading(false); }
     };
     fetchMyLoans();
     const interval = setInterval(fetchMyLoans, 5000);
@@ -100,16 +123,26 @@ export const DashboardPage = () => {
     }
   };
 
+  const liveScore = onChainScore ?? trustScore ?? 50;
+  const activeChainLoans = chainLoans.filter(l => l.status === 1);
+  const repaidChainLoans = chainLoans.filter(l => l.status === 2);
+  const totalBorrowedChain = chainLoans.reduce((s, l) => s + l.principal, 0);
+  const totalOwedChain = activeChainLoans.reduce((s, l) => s + l.totalOwed, 0);
 
-  const liveScore     = onChainScore ?? appScore;
-  const activeLoans   = myLoans.filter(l => l.status === 1);
-  const repaidLoans   = myLoans.filter(l => l.status === 2);
-  const totalBorrowed = myLoans.reduce((s, l) => s + l.principal, 0);
-  const totalOwedNow  = activeLoans.reduce((s, l) => s + l.totalOwed, 0);
+  // Merge: prefer chain data when available, fall back to DB
+  const activeDbLoans = dbLoans.filter(l => l.status === 'active' || l.status === 'pending');
+  const totalBorrowedDb = dbLoans.reduce((s, l) => s + l.amount, 0);
+
+  const totalBorrowed = totalBorrowedChain || totalBorrowedDb;
+  const activeLoansDisplay = activeChainLoans.length || activeDbLoans.length;
+  const repaidCount = repaidChainLoans.length + dbLoans.filter(l => l.status === 'repaid').length;
+
+  const loading = dbLoading || chainLoading;
 
   const scoreLabel = liveScore >= 80 ? 'High Trust 🌟' : liveScore >= 60 ? 'Medium-High' : liveScore >= 40 ? 'Building Trust' : 'New Member';
   const scoreColor = liveScore >= 80 ? 'var(--color-success)' : liveScore >= 60 ? 'var(--color-warning)' : 'var(--color-danger)';
-  const pct        = activeLoan ? Math.round((activeLoan.paidInstallments / activeLoan.totalInstallments) * 100) : 0;
+
+  const displayName = user?.name || (account ? `${account.slice(0, 6)}…` : 'there');
 
   return (
     <>
@@ -117,22 +150,19 @@ export const DashboardPage = () => {
 
       {/* Greeting */}
       <div className="dashboard-greeting animate-fade-in-up">
-        <h1>
-          {account ? `Hi, ${account.slice(0, 6)}… 👋` : 'Hi there 👋'}
-        </h1>
-        <p>Here's your live blockchain financial snapshot.</p>
+        <h1>Hi, {displayName} 👋</h1>
+        <p>Here's your live financial snapshot.</p>
         <div className="verification-pills" role="list">
-          <span className="pill pill-success" role="listitem">⛓️ Wallet Connected</span>
-          {onChainScore !== null && (
-            <span className="pill pill-success" role="listitem">✓ Registered On-Chain</span>
-          )}
-          {repaidLoans.length > 0 && (
-            <span className="pill pill-success" role="listitem">✓ {repaidLoans.length} Loan{repaidLoans.length > 1 ? 's' : ''} Repaid</span>
+          {account && <span className="pill pill-success" role="listitem">⛓️ Wallet Connected</span>}
+          {user?.kycStatus === 'completed' && <span className="pill pill-success" role="listitem">✓ KYC Verified</span>}
+          {onChainScore !== null && <span className="pill pill-success" role="listitem">✓ Registered On-Chain</span>}
+          {repaidCount > 0 && (
+            <span className="pill pill-success" role="listitem">✓ {repaidCount} Loan{repaidCount > 1 ? 's' : ''} Repaid</span>
           )}
         </div>
       </div>
 
-      {/* Live KPI Stat Cards */}
+      {/* KPI Stat Cards */}
       <div className="stat-cards-grid animate-fade-in-up stagger-1">
         <div className="stat-card" style={{ borderLeft: '3px solid var(--color-primary)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
@@ -140,10 +170,10 @@ export const DashboardPage = () => {
             <span style={{ fontSize: '0.75rem', color: 'var(--color-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total Borrowed</span>
           </div>
           <div style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--color-primary)' }}>
-            {liveLoading ? '…' : `₹${totalBorrowed.toLocaleString('en-IN')}`}
+            {loading ? '…' : `₹${totalBorrowed.toLocaleString('en-IN')}`}
           </div>
           <div style={{ fontSize: '0.75rem', color: 'var(--color-muted)', marginTop: 4 }}>
-            {myLoans.length} total loans ⛓️
+            {dbLoans.length + chainLoans.length} total loans
           </div>
         </div>
 
@@ -153,10 +183,10 @@ export const DashboardPage = () => {
             <span style={{ fontSize: '0.75rem', color: 'var(--color-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Amount Due</span>
           </div>
           <div style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--color-warning)' }}>
-            {liveLoading ? '…' : `₹${totalOwedNow.toLocaleString('en-IN')}`}
+            {loading ? '…' : `₹${totalOwedChain.toLocaleString('en-IN')}`}
           </div>
           <div style={{ fontSize: '0.75rem', color: 'var(--color-muted)', marginTop: 4 }}>
-            {activeLoans.length} active loan{activeLoans.length !== 1 ? 's' : ''} ⛓️
+            {activeLoansDisplay} active loan{activeLoansDisplay !== 1 ? 's' : ''}
           </div>
         </div>
 
@@ -177,9 +207,9 @@ export const DashboardPage = () => {
             <span style={{ fontSize: '0.75rem', color: 'var(--color-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Repaid</span>
           </div>
           <div style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--color-secondary)' }}>
-            {liveLoading ? '…' : repaidLoans.length}
+            {loading ? '…' : repaidCount}
           </div>
-          <div style={{ fontSize: '0.75rem', color: 'var(--color-muted)', marginTop: 4 }}>loans closed on-chain ⛓️</div>
+          <div style={{ fontSize: '0.75rem', color: 'var(--color-muted)', marginTop: 4 }}>loans closed</div>
         </div>
       </div>
 
@@ -204,9 +234,8 @@ export const DashboardPage = () => {
               : '💡 Get endorsed by community members to boost your score and unlock better rates.'}
           </div>
 
-          {/* Score increase breakdown */}
           <div style={{ marginTop: 'var(--sp-4)', fontSize: '0.8rem', color: 'var(--color-muted)' }}>
-            <div style={{ fontWeight: 600, marginBottom: 6 }}>How to increase your score ⛓️</div>
+            <div style={{ fontWeight: 600, marginBottom: 6 }}>How to increase your score</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
               <div>✅ Successful repayment <strong style={{ color: 'var(--color-success)' }}>+10 pts</strong></div>
               <div>🌟 Community endorsement <strong style={{ color: 'var(--color-success)' }}>+5 pts</strong></div>
@@ -219,20 +248,20 @@ export const DashboardPage = () => {
           </button>
         </div>
 
-        {/* Right — Live Loans + Activity + Quick Actions */}
+        {/* Right — Loans + Activity + Quick Actions */}
         <div className="dashboard-right">
 
-          {/* Live On-Chain Active Loans */}
-          {!liveLoading && activeLoans.length > 0 && (
+          {/* Active On-Chain Loans */}
+          {!chainLoading && activeChainLoans.length > 0 && (
             <div className="card animate-fade-in-up stagger-3">
               <div className="loan-panel-header">
                 <div>
                   <div className="card-title">Active Loans ⛓️</div>
-                  <div className="card-subtitle">{activeLoans.length} loan{activeLoans.length > 1 ? 's' : ''} awaiting repayment</div>
+                  <div className="card-subtitle">{activeChainLoans.length} loan{activeChainLoans.length > 1 ? 's' : ''} awaiting repayment</div>
                 </div>
                 <span className="pill pill-warning">Live</span>
               </div>
-              {activeLoans.map(loan => (
+              {activeChainLoans.map(loan => (
                 <div key={loan.id} style={{ padding: 'var(--sp-3) 0', borderBottom: '1px solid var(--color-border)' }}>
                   <div className="flex justify-between items-center">
                     <div>
@@ -256,7 +285,7 @@ export const DashboardPage = () => {
           )}
 
           {/* Pending loans with agreement status chips */}
-          {!liveLoading && myLoans.filter(l => l.status === 0).length > 0 && (
+          {!chainLoading && chainLoans.filter(l => l.status === 0).length > 0 && (
             <div className="card animate-fade-in-up stagger-3">
               <div className="loan-panel-header">
                 <div>
@@ -264,7 +293,7 @@ export const DashboardPage = () => {
                   <div className="card-subtitle">Waiting for lender agreement or funding</div>
                 </div>
               </div>
-              {myLoans.filter(l => l.status === 0).map(loan => {
+              {chainLoans.filter(l => l.status === 0).map(loan => {
                 const agr = agreementStatuses[loan.id];
                 const lenderDone   = agr?.lenderSigned;
                 const borrowerDone = agr?.borrowerSigned;
@@ -310,8 +339,39 @@ export const DashboardPage = () => {
             </div>
           )}
 
-          {/* Fallback if no on-chain loans */}
-          {!liveLoading && activeLoans.length === 0 && (
+          {/* Active DB Loans (when no chain loans) */}
+          {!dbLoading && activeChainLoans.length === 0 && activeDbLoans.length > 0 && (
+            <div className="card animate-fade-in-up stagger-3">
+              <div className="loan-panel-header">
+                <div>
+                  <div className="card-title">Active Loans</div>
+                  <div className="card-subtitle">{activeDbLoans.length} loan{activeDbLoans.length > 1 ? 's' : ''}</div>
+                </div>
+                <span className="pill pill-warning">Pending</span>
+              </div>
+              {activeDbLoans.slice(0, 2).map(loan => (
+                <div key={loan.id} style={{ padding: 'var(--sp-3) 0', borderBottom: '1px solid var(--color-border)' }}>
+                  <div className="flex justify-between items-center">
+                    <div>
+                      <div style={{ fontWeight: 600 }}>{loan.purpose.slice(0, 50)}{loan.purpose.length > 50 ? '…' : ''}</div>
+                      <div style={{ fontSize: '0.8rem', color: 'var(--color-muted)', marginTop: 2 }}>
+                        ₹{loan.amount.toLocaleString('en-IN')} · {loan.period_months} months · <span style={{ color: loan.status === 'pending' ? 'var(--color-warning)' : 'var(--color-success)' }}>{loan.status}</span>
+                      </div>
+                    </div>
+                    <span style={{ fontWeight: 700, color: 'var(--color-warning)', fontSize: '1rem' }}>
+                      ₹{(loan.total_owed || loan.amount).toLocaleString('en-IN')}
+                    </span>
+                  </div>
+                </div>
+              ))}
+              <button className="btn btn-outline w-full mt-3 text-sm" onClick={() => navigate('/loan/repayment')}>
+                View repayment →
+              </button>
+            </div>
+          )}
+
+          {/* No loans fallback */}
+          {!loading && activeChainLoans.length === 0 && activeDbLoans.length === 0 && (
             <div className="card animate-fade-in-up stagger-3" style={{ textAlign: 'center', padding: 'var(--sp-6)' }}>
               <div style={{ fontSize: '2rem', marginBottom: 8 }}>💡</div>
               <div className="card-title mb-2">No active loans</div>
@@ -329,19 +389,28 @@ export const DashboardPage = () => {
           <div className="card animate-fade-in-up stagger-4">
             <div className="card-title">Recent Activity</div>
             <div className="activity-feed" role="list" aria-label="Recent activity">
-              {MOCK_ACTIVITY.map(item => {
+              {dbActivity.length === 0 && !dbLoading && (
+                <div style={{ color: 'var(--color-muted)', fontSize: '0.85rem', padding: 'var(--sp-4)', textAlign: 'center' }}>
+                  No activity yet. Make your first loan request!
+                </div>
+              )}
+              {dbActivity.map(item => {
                 const { label, color, bg } = activityTypeLabel(item.type);
                 return (
                   <div key={item.id} className="activity-row" role="listitem">
-                    <div className="activity-icon" style={{ background: bg, color }} aria-hidden="true">{item.icon}</div>
-                    <div className="activity-text">
-                      <span className="font-medium">{item.actor}</span>
-                      {item.type === 'repaid'    && <span> repaid <strong>₹{item.amount.toLocaleString('en-IN')}</strong></span>}
-                      {item.type === 'funded'    && <span> funded <strong>₹{item.amount.toLocaleString('en-IN')}</strong></span>}
-                      {item.type === 'requested' && <span> requested <strong>₹{item.amount.toLocaleString('en-IN')}</strong> loan</span>}
-                      {item.type === 'vouched'   && <span> vouched for a member</span>}
+                    <div className="activity-icon" style={{ background: bg, color }} aria-hidden="true">
+                      {typeIcon[item.type] || '•'}
                     </div>
-                    <div className="activity-time text-xs text-muted">{item.time}</div>
+                    <div className="activity-text">
+                      <span className="font-medium">{item.actor_name || 'User'}</span>
+                      {item.type === 'repaid'    && <span> repaid <strong>₹{item.amount?.toLocaleString('en-IN')}</strong></span>}
+                      {item.type === 'funded'    && <span> funded <strong>₹{item.amount?.toLocaleString('en-IN')}</strong></span>}
+                      {item.type === 'requested' && <span> requested <strong>₹{item.amount?.toLocaleString('en-IN')}</strong> loan</span>}
+                      {item.type === 'vouched'   && <span> vouched for a member</span>}
+                      {item.type === 'endorsed'  && <span> earned an endorsement</span>}
+                      {item.type === 'verified'  && <span> completed verification</span>}
+                    </div>
+                    <div className="activity-time text-xs text-muted">{timeAgo(item.created_at)}</div>
                     <span className="pill text-xs" style={{ background: bg, color, border: 'none', padding: '2px 8px' }}>{label}</span>
                   </div>
                 );

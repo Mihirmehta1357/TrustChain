@@ -1,6 +1,7 @@
 import React, { createContext, useState, useEffect, useCallback } from "react";
 import { ethers } from "ethers";
 import TrustChainABI from "../artifacts/contracts/TrustChain.sol/TrustChain.json";
+import RupeeTrustTokenABI from "../artifacts/contracts/RupeeTrustToken.sol/RupeeTrustToken.json";
 
 export const Web3Context = createContext();
 
@@ -9,6 +10,8 @@ const CONTRACT_ADDRESS = "0x5FbDB2315678afecb367f032d93F642f64180aa3";
 export const Web3Provider = ({ children }) => {
   const [account, setAccount]           = useState("");
   const [contract, setContract]         = useState(null);
+  const [rtkContract, setRtkContract]   = useState(null);
+  const [rtkBalance, setRtkBalance]     = useState("0");
   const [provider, setProvider]         = useState(null);
   const [signer, setSigner]             = useState(null);
   const [trustScore, setTrustScore]     = useState(null);
@@ -53,6 +56,18 @@ export const Web3Provider = ({ children }) => {
 
       const c = new ethers.Contract(CONTRACT_ADDRESS, TrustChainABI.abi, ethersSigner);
       setContract(c);
+      
+      // Load RTK Contract dynamically from TrustChain state
+      try {
+        const rtkAddress = await c.rtkToken();
+        const rtk = new ethers.Contract(rtkAddress, RupeeTrustTokenABI.abi, ethersSigner);
+        setRtkContract(rtk);
+        const balWei = await rtk.balanceOf(addr);
+        setRtkBalance(ethers.formatUnits(balWei, 18));
+      } catch (err) {
+        console.error("Failed to load RTK Token", err);
+      }
+
       console.log("Connected to Wallet:", addr);
 
       // Silently READ registration status — no transaction fired
@@ -139,6 +154,8 @@ export const Web3Provider = ({ children }) => {
       registerOnChain,
       registering,
       contract,
+      rtkContract,
+      rtkBalance,
       provider,
       signer,
       trustScore,

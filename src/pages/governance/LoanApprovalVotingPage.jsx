@@ -1,16 +1,42 @@
-import React, { useContext, useState } from 'react';
+import React, { useContext, useState, useEffect } from 'react';
 import { AppContext } from '../../context/AppContext';
 import { MOCK_GOV_LOAN } from '../../data/mockData';
 import { VoteBar } from '../../components/shared/SharedComponents';
 import { useToast } from '../../components/shared/ToastProvider';
+import { castGovernanceVote, fetchUserVote, fetchVoteTallies } from '../../utils/supabaseService';
+
+const CASE_ID = 'gov-loan-001';
+const CASE_TYPE = 'loan_approval';
 
 export const LoanApprovalVotingPage = () => {
-  const { hasVotedGov, setHasVotedGov } = useContext(AppContext);
+  const { user } = useContext(AppContext);
   const showToast = useToast();
   const [govLoan] = useState(MOCK_GOV_LOAN);
   const [localVotes, setLocalVotes] = useState({ approve: govLoan.votesApprove, reject: govLoan.votesReject });
+  const [hasVotedGov, setHasVotedGov] = useState(null);
+  const [loading, setLoading] = useState(true);
 
-  const handleVote = (vote) => {
+  // Load existing vote and tallies from Supabase
+  useEffect(() => {
+    const load = async () => {
+      if (!user?.id) { setLoading(false); return; }
+      const [myVote, tallies] = await Promise.all([
+        fetchUserVote({ userId: user.id, caseId: CASE_ID, caseType: CASE_TYPE }),
+        fetchVoteTallies({ caseId: CASE_ID, caseType: CASE_TYPE }),
+      ]);
+      setHasVotedGov(myVote);
+      if (Object.keys(tallies).length > 0) {
+        setLocalVotes({
+          approve: (tallies.approve || 0) + govLoan.votesApprove,
+          reject: (tallies.reject || 0) + govLoan.votesReject,
+        });
+      }
+      setLoading(false);
+    };
+    load();
+  }, [user?.id]);
+
+  const handleVote = async (vote) => {
     if (hasVotedGov) return;
     setHasVotedGov(vote);
     setLocalVotes(prev => ({
@@ -18,6 +44,19 @@ export const LoanApprovalVotingPage = () => {
       reject: prev.reject + (vote === 'reject' ? 1 : 0),
     }));
     showToast(`Vote recorded: ${vote === 'approve' ? 'Approved ✓' : 'Rejected ✗'}`, 'success');
+
+    if (user?.id) {
+      const { error } = await castGovernanceVote({
+        userId: user.id,
+        caseId: CASE_ID,
+        caseType: CASE_TYPE,
+        vote,
+      });
+      if (error) {
+        showToast('Failed to save vote. Please try again.', 'error');
+        setHasVotedGov(null);
+      }
+    }
   };
 
   const totalVotes = localVotes.approve + localVotes.reject;
@@ -71,7 +110,7 @@ export const LoanApprovalVotingPage = () => {
               className={`btn vote-btn-legitimate ${hasVotedGov === 'approve' ? 'selected' : ''}`}
               id="vote-approve-btn"
               onClick={() => handleVote('approve')}
-              disabled={!!hasVotedGov}
+              disabled={!!hasVotedGov || loading || !user?.id}
               aria-pressed={hasVotedGov === 'approve'}
             >
               ✅ Approve Loan
@@ -80,12 +119,18 @@ export const LoanApprovalVotingPage = () => {
               className={`btn vote-btn-suspicious ${hasVotedGov === 'reject' ? 'selected' : ''}`}
               id="vote-reject-btn"
               onClick={() => handleVote('reject')}
-              disabled={!!hasVotedGov}
+              disabled={!!hasVotedGov || loading || !user?.id}
               aria-pressed={hasVotedGov === 'reject'}
             >
               ❌ Reject Loan
             </button>
           </div>
+
+          {!user?.id && !loading && (
+            <div className="trust-hint" style={{ textAlign: 'center', color: 'var(--color-muted)' }}>
+              ⚠️ Please sign in to cast your vote.
+            </div>
+          )}
 
           {/* Live vote tally */}
           <div className="card" style={{ background: 'var(--color-bg)' }}>
@@ -99,8 +144,6 @@ export const LoanApprovalVotingPage = () => {
               forColor="var(--color-success)"
               againstColor="var(--color-danger)"
             />
-
-            {/* Auto-outcome threshold indicator */}
             <div className="threshold-note mt-3 text-xs text-muted">
               Auto-outcome triggers at <strong>{govLoan.threshold}% approval</strong>. Currently at {approvePct}%.
             </div>
@@ -116,6 +159,11 @@ export const LoanApprovalVotingPage = () => {
                   : '❌ Loan rejected — not enough community approval.'}
               </div>
             )}
+            {hasVotedGov && (
+              <div className="text-xs text-muted text-center mt-2">
+                ✓ Your vote has been saved to the database
+              </div>
+            )}
           </div>
         </div>
 
@@ -126,7 +174,7 @@ export const LoanApprovalVotingPage = () => {
             <div className="tip-row"><span>🗳️</span><span className="text-sm">All loan approvals above ₹10,000 go to community vote</span></div>
             <div className="tip-row"><span>⚖️</span><span className="text-sm">51% majority of active voters decides the outcome</span></div>
             <div className="tip-row"><span>⏱️</span><span className="text-sm">Voting window is 48 hours from loan submission</span></div>
-            <div className="tip-row"><span>🔒</span><span className="text-sm">Your vote is anonymous — community sees only totals</span></div>
+            <div className="tip-row"><span>🔒</span><span className="text-sm">Your vote is stored securely — community sees only totals</span></div>
           </div>
 
           <div className="card mb-4" style={{ background: '#EEEDFE', border: '1px solid #AFA9EC' }}>

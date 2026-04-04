@@ -5,18 +5,22 @@ import { Web3Context } from '../../context/Web3Context';
 import { useToast } from '../../components/shared/ToastProvider';
 import { calcLoan } from '../../utils/formatters';
 import { ethers } from 'ethers';
+import { createLoan, createTransaction } from '../../utils/supabaseService';
 
 export const RequestLoanPage = () => {
-  const { podStrength, verification, kycCompleted } = useContext(AppContext);
+  const { podStrength, verification, kycCompleted, user, trustScore } = useContext(AppContext);
+  const { contract, account, isRegistered } = useContext(Web3Context);
+  const showToast = useToast();
+  const navigate = useNavigate();
+
   const [amount, setAmount] = useState(10000);
   const [period, setPeriod] = useState(3);
   const [purpose, setPurpose] = useState('');
   const [story, setStory] = useState('');
   const [riskTier, setRiskTier] = useState('Low');
   const [weeklyPayment, setWeeklyPayment] = useState(0);
-  const { contract, account, isRegistered } = useContext(Web3Context);
-  const showToast = useToast();
-  const navigate = useNavigate();
+  const [interestRate, setInterestRate] = useState(20);
+  const [submitting, setSubmitting] = useState(false);
 
   // KYC Gate
   if (!kycCompleted) {
@@ -31,40 +35,86 @@ export const RequestLoanPage = () => {
   }
 
   useEffect(() => {
+    const rate = trustScore >= 80 ? 12 : trustScore >= 60 ? 16 : 20;
+    setInterestRate(rate);
     const data = calcLoan(amount, period * 4, podStrength, verification);
     setWeeklyPayment(data.weekly);
     setRiskTier(amount > 30000 ? 'High' : amount > 15000 ? 'Medium' : 'Low');
-  }, [amount, period, podStrength, verification]);
+  }, [amount, period, podStrength, verification, trustScore]);
 
   const riskColor = { Low: 'var(--color-success)', Medium: 'var(--color-warning)', High: 'var(--color-danger)' };
   const riskPill = { Low: 'pill-success', Medium: 'pill-warning', High: 'pill-danger' };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!contract || !account) {
-      showToast('Please connect your MetaMask wallet first!', 'error');
-      return;
-    }
-    if (!isRegistered) {
-      showToast('Please activate your on-chain identity first! Click the banner in the left sidebar.', 'error');
-      return;
-    }
+    if (!purpose.trim()) { showToast('Please enter a loan purpose.', 'error'); return; }
+    setSubmitting(true);
 
     try {
-      showToast('Please confirm the transaction in MetaMask...', 'info');
-      // Execute the requestLoan function from TrustChain.sol using proper ETH scaling
-      const tx = await contract.requestLoan(ethers.parseEther(amount.toString()), purpose);
-      
-      showToast('Waiting for blockchain confirmation...', 'info');
-      await tx.wait(); // Wait for the block to be mined
-      
-      showToast('Loan request successfully written to the blockchain! 🎉', 'success');
-      navigate('/app/dashboard');
+      // 1. Try blockchain transaction if wallet connected
+      if (contract && account) {
+        if (!isRegistered) {
+          showToast('Please activate your on-chain identity first! Click the banner in the left sidebar.', 'error');
+          setSubmitting(false);
+          return;
+        }
+        showToast('Please confirm the transaction in MetaMask...', 'info');
+        const tx = await contract.requestLoan(ethers.parseEther(amount.toString()), purpose);
+        showToast('Waiting for blockchain confirmation...', 'info');
+        await tx.wait();
+        showToast('Loan request written to the blockchain! 🎉', 'success');
+      }
+
+      // 2. Always save to Supabase (metadata store)
+      if (user?.id) {
+        const { data: loan, error } = await createLoan({
+          userId: user.id,
+          amount,
+          purpose,
+          story,
+          periodMonths: period,
+          riskTier,
+          interestRate,
+        });
+
+        if (!error && loan) {
+          // Create a transaction entry
+          await createTransaction({
+            userId: user.id,
+            type: 'requested',
+            actorName: user.name || user.full_name || 'User',
+            amount,
+            relatedLoanId: loan.id,
+          });
+          if (!contract || !account) {
+            showToast('Loan request saved! Connect MetaMask for blockchain submission.', 'success');
+          }
+        } else if (error) {
+          console.error('Supabase loan save error:', error);
+          if (!contract || !account) {
+            showToast('Failed to save loan. Please try again.', 'error');
+            setSubmitting(false);
+            return;
+          }
+        }
+      } else {
+        if (!contract || !account) {
+          showToast('Please sign in and connect your wallet to request a loan.', 'error');
+          setSubmitting(false);
+          return;
+        }
+      }
+
+      navigate('/dashboard');
     } catch (err) {
       console.error(err);
       showToast('Transaction was rejected or failed.', 'error');
+    } finally {
+      setSubmitting(false);
     }
   };
+
+  const totalOwed = Math.round(amount * (1 + interestRate / 100));
 
   return (
     <section className="screen active" aria-label="Request a Loan">
@@ -127,7 +177,7 @@ export const RequestLoanPage = () => {
             </div>
           </div>
 
-          {/* Optional story */}
+          {/* Story */}
           <div className="form-group">
             <label className="form-label" htmlFor="loan-story">
               Your Story <span className="text-muted">(optional — increases funding chance)</span>
@@ -143,30 +193,38 @@ export const RequestLoanPage = () => {
             />
           </div>
 
-          {/* Photo upload hint */}
-          <div className="form-group">
-            <div className="upload-zone-sm">
-              <span>📷</span>
-              <span className="text-sm text-muted">Add a photo to your loan story (optional)</span>
-            </div>
-          </div>
-
-          {/* Live estimate */}
+          {/* Loan summary */}
           <div className="live-estimate-panel">
-            <div className="flex justify-between items-center">
+            <div className="flex justify-between items-center mb-2">
               <span className="text-muted text-sm">Weekly repayment</span>
               <span className="font-semibold text-lg">₹{weeklyPayment.toLocaleString('en-IN')}</span>
             </div>
+            <div className="flex justify-between items-center mb-2">
+              <span className="text-muted text-sm">Interest rate</span>
+              <span className="font-semibold" style={{ color: interestRate === 12 ? 'var(--color-success)' : interestRate === 16 ? 'var(--color-warning)' : 'var(--color-danger)' }}>
+                {interestRate}%
+              </span>
+            </div>
+            <div className="flex justify-between items-center" style={{ borderTop: '1px solid var(--color-border)', paddingTop: 8 }}>
+              <span className="text-sm font-semibold">Total to repay</span>
+              <span className="font-bold text-lg" style={{ color: 'var(--color-primary)' }}>₹{totalOwed.toLocaleString('en-IN')}</span>
+            </div>
           </div>
 
-          <button type="submit" className="btn btn-primary w-full mt-6" id="submit-loan-btn">
-             <svg viewBox="0 0 32 32" fill="none" width="16" height="16" aria-hidden="true" style={{marginRight: '8px', verticalAlign: 'middle'}}>
-                <path d="M29.5 12L20 4.5l-4-3-4 3-9.5 7.5L5 21l3 7.5L16 29l8-1.5 3-7.5 2.5-9z" fill="#F6851B" stroke="#F6851B" strokeWidth="1" strokeLinejoin="round"/>
-             </svg>
-            Sign & Submit with Web3 →
+          <button type="submit" className="btn btn-primary w-full mt-6" id="submit-loan-btn" disabled={submitting}>
+            {submitting ? '⏳ Submitting…' : (
+              <>
+                {account && (
+                  <svg viewBox="0 0 32 32" fill="none" width="16" height="16" aria-hidden="true" style={{ marginRight: '8px', verticalAlign: 'middle' }}>
+                    <path d="M29.5 12L20 4.5l-4-3-4 3-9.5 7.5L5 21l3 7.5L16 29l8-1.5 3-7.5 2.5-9z" fill="#F6851B" stroke="#F6851B" strokeWidth="1" strokeLinejoin="round" />
+                  </svg>
+                )}
+                {account ? 'Sign & Submit with Web3 →' : 'Submit Loan Request →'}
+              </>
+            )}
           </button>
           <div className="text-center text-xs text-muted mt-3">
-            🔒 Fully decentralized blockchain architecture
+            {account ? '🔒 Fully decentralized blockchain architecture' : '⚠️ Connect MetaMask to submit on-chain'}
           </div>
         </form>
 
@@ -191,15 +249,21 @@ export const RequestLoanPage = () => {
               <span className="pill pill-success text-xs">{period} month{period > 1 ? 's' : ''}</span>
             </div>
             <div className="factor-row">
-              <span className="text-sm">Community Pod</span>
-              <span className={`pill text-xs ${podStrength === 'strong' ? 'pill-success' : 'pill-warning'}`}>
-                {podStrength.charAt(0).toUpperCase() + podStrength.slice(1)}
+              <span className="text-sm">Trust Score</span>
+              <span className={`pill text-xs ${trustScore >= 80 ? 'pill-success' : trustScore >= 60 ? 'pill-warning' : 'pill-danger'}`}>
+                {trustScore ?? 50} pts
               </span>
             </div>
             <div className="factor-row">
-              <span className="text-sm">Verification</span>
-              <span className={`pill text-xs ${verification === 'ngo' ? 'pill-success' : 'pill-warning'}`}>
-                {verification === 'ngo' ? 'NGO + Phone' : verification === 'phone' ? 'Phone only' : 'None'}
+              <span className="text-sm">Interest Rate</span>
+              <span className={`pill text-xs ${interestRate === 12 ? 'pill-success' : interestRate === 16 ? 'pill-warning' : 'pill-danger'}`}>
+                {interestRate}%
+              </span>
+            </div>
+            <div className="factor-row">
+              <span className="text-sm">Community Pod</span>
+              <span className={`pill text-xs ${podStrength === 'strong' ? 'pill-success' : 'pill-warning'}`}>
+                {podStrength.charAt(0).toUpperCase() + podStrength.slice(1)}
               </span>
             </div>
           </div>

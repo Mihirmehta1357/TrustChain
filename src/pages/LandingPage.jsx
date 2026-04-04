@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { fetchOpenLoans } from '../utils/supabaseService';
 import { MOCK_LOANS } from '../data/mockData';
 import { LoanCard } from '../components/shared/SharedComponents';
 import { LandingNav } from '../components/layout/LandingNav';
@@ -9,6 +10,37 @@ import { useScrollAnimation } from '../hooks/useScrollAnimation';
 export const LandingPage = () => {
   useScrollAnimation('.animate-fade-in-up');
   const navigate = useNavigate();
+  const [dbLoans, setDbLoans] = useState([]);
+
+  useEffect(() => {
+    const load = async () => {
+      const loans = await fetchOpenLoans();
+      setDbLoans(loans.map(l => ({
+        id: l.id,
+        dbId: l.id,
+        borrower: l.profiles?.full_name || 'Anonymous',
+        initials: (l.profiles?.full_name || 'AN').substring(0, 2).toUpperCase(),
+        avatarColor: l.profiles?.avatar_color || '#3B9B9B',
+        amount: l.amount,
+        funded: l.funded_amount || 0,
+        interestRate: l.interest_rate,
+        totalOwed: l.total_owed || Math.round(l.amount * (1 + l.interest_rate / 100)),
+        riskTier: l.risk_tier || 'Low',
+        trustScore: l.profiles?.trust_score || 50,
+        story: l.story || l.purpose,
+        purpose: l.purpose,
+        location: 'India',
+        repaymentPeriod: `${l.period_months} Month${l.period_months > 1 ? 's' : ''}`,
+        tenure: l.period_months || 3,
+        daysLeft: 14,
+        source: 'db',
+      })));
+    };
+    load();
+  }, []);
+
+  const displayLoans = dbLoans.length > 0 ? dbLoans.slice(0, 3) : MOCK_LOANS.slice(0, 3);
+
 
   return (
     <>
@@ -101,7 +133,7 @@ export const LandingPage = () => {
             <p>Real people, real purposes — funded by their community.</p>
           </div>
           <div className="loan-stories-grid">
-            {MOCK_LOANS.map(loan => (
+            {displayLoans.map(loan => (
               <LoanCard key={loan.id} loan={loan} onFund={() => navigate('/login')} showFundBtn={true} />
             ))}
           </div>

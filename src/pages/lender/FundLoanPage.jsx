@@ -1,12 +1,13 @@
 import React, { useState, useContext, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { ethers } from 'ethers';
 import { Web3Context } from '../../context/Web3Context';
 import { AppContext } from '../../context/AppContext';
 import { MOCK_LOANS } from '../../data/mockData';
 import { useToast } from '../../components/shared/ToastProvider';
 import { fundPct, riskBadge } from '../../components/shared/SharedComponents';
 import { LoanAgreementModal } from '../../components/shared/LoanAgreementModal';
-import { ethers } from 'ethers';
+import { fundLoan as dbFundLoan, createTransaction } from '../../utils/supabaseService';
 
 // ─── Agreement status helper ─────────────────────────────────────────────────
 const AgreementBadge = ({ lenderSigned, borrowerSigned }) => {
@@ -59,8 +60,8 @@ export const FundLoanPage = () => {
   const navigate  = useNavigate();
   const location  = useLocation();
   const showToast = useToast();
-  const { contract, account, trustScore, refreshTrustScore, isRegistered } = useContext(Web3Context);
-  const { kycCompleted } = useContext(AppContext);
+  const { contract, account, rtkContract, trustScore, refreshTrustScore, isRegistered } = useContext(Web3Context);
+  const { kycCompleted, user } = useContext(AppContext);
 
   const loan = location.state?.loan || MOCK_LOANS[0];
 
@@ -163,13 +164,50 @@ export const FundLoanPage = () => {
 
     setFunding(true);
     try {
-      showToast('Please confirm the funding transaction in MetaMask…', 'info');
-      const loanId    = isBlockchainLoan ? loan.id : 0;
+      const loanId = isBlockchainLoan ? loan.id : 0;
       const valToSend = isBlockchainLoan ? principal : fundAmount;
-      const tx        = await contract.fundLoan(loanId, { value: ethers.parseEther(valToSend.toString()) });
-      showToast('Waiting for blockchain confirmation…', 'info');
-      await tx.wait();
+      
+      if (isBlockchainLoan) {
+        // 1. Convert visible INR to 18-decimal token format
+        const tokenAmount = ethers.parseUnits(valToSend.toString(), 18);
+
+        if (rtkContract) {
+          showToast('Please approve RTK token spending in MetaMask…', 'info');
+          const trustChainAddress = await contract.getAddress();
+          const approveTx = await rtkContract.approve(trustChainAddress, tokenAmount);
+          showToast('Waiting for approval confirmation…', 'info');
+          await approveTx.wait();
+        }
+
+        showToast('Please confirm the funding transaction in MetaMask…', 'info');
+        
+        // 2. Fund Loan on-chain
+        const tx = await contract.fundLoan(loanId);
+        showToast('Waiting for blockchain confirmation…', 'info');
+        await tx.wait();
+      } else {
+         // Off-chain mock/DB loan
+         showToast('Processing off-chain funding...', 'info');
+         await new Promise(r => setTimeout(r, 1500)); // Simulate networking
+      }
+      
       showToast(`✅ ₹${Number(valToSend).toLocaleString('en-IN')} funded! Agreement executed on-chain.`, 'success');
+
+      // Persist to Supabase if loan has a dbId, else save to local storage for demo
+      if (loan.dbId && user?.id) {
+        await dbFundLoan(loan.dbId, user.id);
+        await createTransaction({
+          userId: user.id,
+          type: 'funded',
+          actorName: user.name || user.full_name || 'Lender',
+          amount: valToSend,
+          relatedLoanId: loan.dbId,
+        });
+      } else if (!loan.dbId) {
+         const prev = JSON.parse(localStorage.getItem('fundedMockLoans') || '[]');
+         prev.push({ ...loan, amount: valToSend, status: 'active', funded_by: user?.id || 'mock', id: `mock-${Date.now()}` });
+         localStorage.setItem('fundedMockLoans', JSON.stringify(prev));
+      }
       navigate('/lender');
     } catch (err) {
       console.error(err);

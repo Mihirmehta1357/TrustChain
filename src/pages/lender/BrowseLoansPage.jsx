@@ -1,6 +1,8 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useContext, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Web3Context } from '../../context/Web3Context';
+import { AppContext } from '../../context/AppContext';
+import { fetchOpenLoans } from '../../utils/supabaseService';
 import { MOCK_LOANS } from '../../data/mockData';
 import { LoanCard } from '../../components/shared/SharedComponents';
 import { ethers } from 'ethers';
@@ -92,6 +94,41 @@ const ChipGroup = ({ label, options, value, onChange }) => (
 export const BrowseLoansPage = () => {
   const navigate = useNavigate();
   const { contract } = React.useContext(Web3Context);
+  const { user } = useContext(AppContext);
+
+  // ── live loans from Supabase ────────────────────────────────────────────
+  const [dbLoans, setDbLoans] = useState([]);
+
+  useEffect(() => {
+    const load = async () => {
+      const loans = await fetchOpenLoans();
+      setDbLoans(loans.map(l => ({
+        id: l.id,
+        dbId: l.id,
+        borrower: l.profiles?.full_name || 'Anonymous',
+        initials: (l.profiles?.full_name || 'AN').substring(0, 2).toUpperCase(),
+        avatarColor: l.profiles?.avatar_color || '#3B9B9B',
+        amount: l.amount,
+        funded: l.funded_amount || 0,
+        interestRate: l.interest_rate,
+        totalOwed: l.total_owed || Math.round(l.amount * (1 + l.interest_rate / 100)),
+        riskTier: l.risk_tier || 'Low',
+        trustScore: l.profiles?.trust_score || 50,
+        story: l.story || l.purpose,
+        purpose: l.purpose,
+        location: 'India',
+        repaymentPeriod: `${l.period_months} Month${l.period_months > 1 ? 's' : ''}`,
+        tenure: l.period_months || 3,
+        daysLeft: 14,
+        borrowerType: 'Self-Employed',
+        monthlyIncome: 20000,
+        age: 28,
+        kycVerified: l.profiles?.kyc_status === 'completed',
+        source: 'db',
+      })));
+    };
+    load();
+  }, []);
 
   // ── live loans from blockchain ────────────────────────────────────────────
   const [liveLoans, setLiveLoans] = useState([]);
@@ -151,7 +188,12 @@ export const BrowseLoansPage = () => {
   const resetAll = () => setF(DEFAULTS);
 
   // ── combined & filtered loans ─────────────────────────────────────────────
-  const combined = [...liveLoans, ...MOCK_LOANS];
+  // Priority: blockchain > Supabase DB > mock fallback (only when both are empty)
+  const combined = [
+    ...liveLoans,
+    ...dbLoans.filter(d => !liveLoans.some(l => l.borrowerAddress === d.walletAddress)),
+    ...(liveLoans.length === 0 && dbLoans.length === 0 ? MOCK_LOANS : []),
+  ];
 
   const filtered = combined.filter(l => {
     const remaining = l.amount - (l.funded ?? 0);
@@ -200,7 +242,7 @@ export const BrowseLoansPage = () => {
           <h2 className="page-title-lg">Browse Loans</h2>
           <div className="card-subtitle">
             {filtered.length} loan{filtered.length !== 1 ? 's' : ''} match your filters
-            {combined.length > 0 && ` · ${liveLoans.length} live ⛓️ + ${MOCK_LOANS.length} demo`}
+            {(liveLoans.length > 0 || dbLoans.length > 0) && ` · ${liveLoans.length} live ⛓️ + ${dbLoans.length} from database`}
           </div>
         </div>
         <button
