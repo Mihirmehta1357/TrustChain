@@ -131,63 +131,107 @@ const AadhaarStep = ({ onNext, onBack }) => {
   );
 };
 
-// ─── STEP 3: Mobile OTP ──────────────────────────────────────
+// ─── STEP 3: Mobile OTP (Real Twilio SMS via Supabase) ───────
 const OtpStep = ({ onNext, onBack }) => {
-  const { showToast } = useToast();
   const [phone, setPhone] = useState('');
-  const [otp, setOtp] = useState('');
+  const [digits, setDigits] = useState(['', '', '', '', '', '']);
   const [otpSent, setOtpSent] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const MOCK_OTP = '123456';
+  const [cooldown, setCooldown] = useState(0);
+  const refs = [useRef(), useRef(), useRef(), useRef(), useRef(), useRef()];
 
-  const sendOtp = () => {
-    setError('');
-    if (!/^[6-9]\d{9}$/.test(phone)) return setError('Enter a valid 10-digit Indian mobile number.');
-    setOtpSent(true);
-    showToast(`OTP sent to +91 ${phone}: ${MOCK_OTP}`, 'info');
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const t = setTimeout(() => setCooldown(c => c - 1), 1000);
+    return () => clearTimeout(t);
+  }, [cooldown]);
+
+  const handleDigitChange = (val, idx) => {
+    const d = [...digits];
+    d[idx] = val.replace(/\D/, '').slice(-1);
+    setDigits(d);
+    if (val && idx < 5) refs[idx + 1].current?.focus();
   };
 
-  const verifyOtp = (e) => {
+  const handleKeyDown = (e, idx) => {
+    if (e.key === 'Backspace' && !digits[idx] && idx > 0) refs[idx - 1].current?.focus();
+  };
+
+  const handlePaste = (e) => {
+    const pasted = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6);
+    if (pasted.length === 6) { setDigits(pasted.split('')); refs[5].current?.focus(); }
+    e.preventDefault();
+  };
+
+  const sendOtp = async () => {
+    setError('');
+    if (!/^[6-9]\d{9}$/.test(phone)) return setError('Enter a valid 10-digit Indian mobile number.');
+    setLoading(true);
+    const { error: err } = await supabase.auth.updateUser({
+      phone: `+91${phone}`
+    });
+    setLoading(false);
+    if (err) return setError(err.message);
+    setOtpSent(true);
+    setCooldown(60);
+    setDigits(['', '', '', '', '', '']);
+  };
+
+  const verifyOtp = async (e) => {
     e.preventDefault();
     setError('');
-    if (otp !== MOCK_OTP) return setError('Invalid OTP. Use 123456 for the demo.');
+    const token = digits.join('');
+    if (token.length < 6) return setError('Enter the complete 6-digit OTP.');
+    setLoading(true);
+    const { error: err } = await supabase.auth.verifyOtp({
+      phone: `+91${phone}`, token, type: 'phone_change'
+    });
+    setLoading(false);
+    if (err) return setError('Invalid OTP. Please check your SMS and try again.');
     onNext({ phoneNumber: phone });
   };
 
   return (
     <form onSubmit={verifyOtp} className="auth-form">
       <h1 className="auth-title">Mobile Verification</h1>
-      <p className="auth-subtitle">Verify your mobile number with an OTP.</p>
+      <p className="auth-subtitle">A real SMS OTP will be sent to your number via Twilio.</p>
       {error && <div style={{ background: '#FEE2E2', color: '#DC2626', padding: '10px', borderRadius: '8px', fontSize: '13px', marginBottom: '12px' }}>⚠ {error}</div>}
+
       <div className="form-group mt-4">
         <label className="form-label" htmlFor="phone-input">Mobile Number</label>
         <div style={{ display: 'flex', gap: '8px' }}>
-          <span style={{ display: 'flex', alignItems: 'center', padding: '0 12px', background: 'var(--color-bg-secondary, #f4f4f4)', border: '1.5px solid var(--color-border)', borderRadius: '10px', fontWeight: 600, fontSize: '14px' }}>+91</span>
-          <input className="form-control" id="phone-input" type="tel" placeholder="98XXXXXXXX"
+          <span style={{ display: 'flex', alignItems: 'center', padding: '0 14px', background: '#F0F4F6', border: '1.5px solid #E8EDF2', borderRadius: '10px', fontWeight: 700, fontSize: '14px' }}>🇮🇳 +91</span>
+          <input className="form-control" id="phone-input" type="tel" placeholder="98XXXXXXXX" maxLength={10}
             value={phone} onChange={e => setPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
-            maxLength={10} required style={{ flex: 1, fontFamily: 'monospace', letterSpacing: '1px' }} />
+            disabled={otpSent} style={{ flex: 1, fontFamily: 'monospace', letterSpacing: '1px' }} />
         </div>
-        <button type="button" className="btn btn-outline w-full mt-2" onClick={sendOtp} id="send-otp-btn">
-          {otpSent ? '📱 Resend OTP' : '📱 Send OTP'}
+        <button type="button" id="send-otp-btn" onClick={sendOtp} disabled={loading || cooldown > 0}
+          style={{ width: '100%', marginTop: '10px', padding: '12px', background: cooldown > 0 ? '#E8EDF2' : '#3B9B9B', color: cooldown > 0 ? '#6B7B8D' : '#fff', border: 'none', borderRadius: '10px', fontWeight: 600, fontSize: '14px', cursor: cooldown > 0 ? 'not-allowed' : 'pointer' }}>
+          {loading ? 'Sending...' : cooldown > 0 ? `Resend in ${cooldown}s` : otpSent ? '📱 Resend OTP' : '📱 Send OTP via SMS'}
         </button>
       </div>
 
       {otpSent && (
         <div className="form-group">
-          <label className="form-label" htmlFor="otp-input">Enter OTP</label>
-          <input className="form-control" id="otp-input" type="text" placeholder="6-digit OTP"
-            value={otp} onChange={e => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
-            maxLength={6} required
-            style={{ letterSpacing: '4px', fontFamily: 'monospace', fontSize: '20px', textAlign: 'center' }} />
-          <div style={{ fontSize: '11px', color: 'var(--color-text-muted)', marginTop: '4px', textAlign: 'center' }}>
-            Demo OTP: <strong>123456</strong>
+          <label className="form-label">Enter 6-digit OTP from SMS</label>
+          <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', marginBottom: '8px' }} onPaste={handlePaste}>
+            {digits.map((d, i) => (
+              <input key={i} ref={refs[i]} id={`sms-otp-${i}`} type="text" inputMode="numeric" maxLength={1} value={d}
+                onChange={e => handleDigitChange(e.target.value, i)}
+                onKeyDown={e => handleKeyDown(e, i)}
+                style={{ width: '44px', height: '52px', textAlign: 'center', fontSize: '20px', fontWeight: 700, fontFamily: 'monospace', border: d ? '2px solid #3B9B9B' : '1.5px solid #E8EDF2', borderRadius: '10px', outline: 'none', background: d ? '#E6F4F4' : '#FFFFFF', color: '#1A2B3D' }} />
+            ))}
           </div>
+          <div style={{ textAlign: 'center', fontSize: '12px', color: '#9AABB8' }}>SMS sent to +91 {phone}</div>
         </div>
       )}
 
       <div className="flex gap-3 mt-4">
         <button type="button" className="btn btn-outline flex-1" onClick={onBack}>← Back</button>
-        <button type="submit" className="btn btn-primary flex-1" id="otp-verify-btn" disabled={!otpSent}>Verify →</button>
+        <button type="submit" className="btn btn-primary flex-1" id="otp-verify-btn" disabled={!otpSent || loading}>
+          {loading ? 'Verifying...' : 'Verify →'}
+        </button>
       </div>
     </form>
   );
@@ -374,7 +418,7 @@ const FaceStep = ({ onNext, onBack }) => {
 export const KYCPage = () => {
   const navigate = useNavigate();
   const { user, setUser } = useContext(AppContext);
-  const { showToast } = useToast();
+  const showToast = useToast();
   const [step, setStep] = useState(1);
   const [collectedData, setCollectedData] = useState({});
   const [saving, setSaving] = useState(false);
@@ -390,6 +434,19 @@ export const KYCPage = () => {
   const handleFaceNext = async (data) => {
     const finalData = { ...collectedData, ...data };
     setSaving(true);
+    
+    let currentUserId = user?.id;
+    if (!currentUserId) {
+      const { data: { user: sbUser } } = await supabase.auth.getUser();
+      currentUserId = sbUser?.id;
+    }
+
+    if (!currentUserId) {
+      showToast('Authentication lost. Please sign in again.', 'error');
+      setSaving(false);
+      navigate('/signup');
+      return;
+    }
 
     const { error } = await supabase
       .from('profiles')
@@ -399,7 +456,7 @@ export const KYCPage = () => {
         phone_number: finalData.phoneNumber,
         kyc_status: 'completed',
       })
-      .eq('id', user.id);
+      .eq('id', currentUserId);
 
     if (error) {
       console.error('KYC save error:', error);

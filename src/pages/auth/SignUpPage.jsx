@@ -215,10 +215,12 @@ export const SignUpPage = () => {
 
   const handleResend = async () => {
     setError('');
-    const { error: err } = await supabase.auth.resend({ type: 'signup', email: registeredEmail });
+    const { error: err } = await supabase.auth.signInWithOtp({
+      email: registeredEmail,
+      options: { shouldCreateUser: false }
+    });
     if (err) setError(err.message);
-    else setError('');
-    alert('OTP resent! Check your Gmail inbox.');
+    else alert('OTP resent! Check your Gmail inbox.');
   };
 
   return (
