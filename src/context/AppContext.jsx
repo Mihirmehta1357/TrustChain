@@ -33,8 +33,12 @@ export const AppProvider = ({ children }) => {
   const [hasVotedGov, setHasVotedGov]     = useState(null);
 
   // Community / Pod system (off-chain simulated store)
-  const [communities, setCommunities]       = useState([]);
-  const [userCommunityId, setUserCommunityId] = useState(null);
+  const [communities, setCommunities]             = useState([]);
+  const [userCommunityId, setUserCommunityId]     = useState(null);
+  // endorsementRequests: [{id, requester, communityId, message, status:'pending'|'approved'|'rejected', createdAt}]
+  const [endorsementRequests, setEndorsementRequests] = useState([]);
+  // communityLoanRequests: [{id, requester, communityId, amount, purpose, createdAt, funders:[]}]
+  const [communityLoanRequests, setCommunityLoanRequests] = useState([]);
 
   // Recalculate trust score reactively
   useEffect(() => {
@@ -75,6 +79,8 @@ export const AppProvider = ({ children }) => {
     // Community
     communities, setCommunities,
     userCommunityId, setUserCommunityId,
+    endorsementRequests, setEndorsementRequests,
+    communityLoanRequests, setCommunityLoanRequests,
   };
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
