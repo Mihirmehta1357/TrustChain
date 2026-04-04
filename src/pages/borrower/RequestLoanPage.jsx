@@ -7,16 +7,15 @@ import { calcLoan } from '../../utils/formatters';
 
 export const RequestLoanPage = () => {
   const { podStrength, verification, kycCompleted } = useContext(AppContext);
-  const [amount, setAmount]     = useState(10000);
-  const [period, setPeriod]     = useState(3);
-  const [purpose, setPurpose]   = useState('');
-  const [story, setStory]       = useState('');
+  const [amount, setAmount] = useState(10000);
+  const [period, setPeriod] = useState(3);
+  const [purpose, setPurpose] = useState('');
+  const [story, setStory] = useState('');
   const [riskTier, setRiskTier] = useState('Low');
   const [weeklyPayment, setWeeklyPayment] = useState(0);
-  const [onChainRate, setOnChainRate]     = useState(null); // live from contract
-  const { contract, account, trustScore } = useContext(Web3Context);
-  const showToast  = useToast();
-  const navigate   = useNavigate();
+  const { contract, account } = useContext(Web3Context);
+  const showToast = useToast();
+  const navigate = useNavigate();
 
   // KYC Gate
   if (!kycCompleted) {
@@ -36,16 +35,8 @@ export const RequestLoanPage = () => {
     setRiskTier(amount > 30000 ? 'High' : amount > 15000 ? 'Medium' : 'Low');
   }, [amount, period, podStrength, verification]);
 
-  // Fetch live on-chain interest rate for connected wallet
-  useEffect(() => {
-    if (!contract || !account) return;
-    contract.computeInterestRate(account)
-      .then(r => setOnChainRate(Number(r)))
-      .catch(() => {});
-  }, [contract, account]);
-
   const riskColor = { Low: 'var(--color-success)', Medium: 'var(--color-warning)', High: 'var(--color-danger)' };
-  const riskPill  = { Low: 'pill-success', Medium: 'pill-warning', High: 'pill-danger' };
+  const riskPill = { Low: 'pill-success', Medium: 'pill-warning', High: 'pill-danger' };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -53,17 +44,20 @@ export const RequestLoanPage = () => {
       showToast('Please connect your MetaMask wallet first!', 'error');
       return;
     }
+
     try {
       showToast('Please confirm the transaction in MetaMask...', 'info');
-      // Contract expects uint256 amount — pass as BigInt (wei equivalent for demo)
-      const tx = await contract.requestLoan(BigInt(amount), purpose);
+      // Execute the requestLoan function from TrustChain.sol
+      const tx = await contract.requestLoan(amount, purpose);
+      
       showToast('Waiting for blockchain confirmation...', 'info');
-      await tx.wait();
-      showToast('Loan request written to blockchain! 🎉', 'success');
-      navigate('/dashboard');
+      await tx.wait(); // Wait for the block to be mined
+      
+      showToast('Loan request successfully written to the blockchain! 🎉', 'success');
+      navigate('/app/dashboard');
     } catch (err) {
       console.error(err);
-      showToast('Transaction rejected or failed: ' + (err.reason || err.message), 'error');
+      showToast('Transaction was rejected or failed.', 'error');
     }
   };
 
@@ -90,100 +84,125 @@ export const RequestLoanPage = () => {
             />
             <div className="slider-labels">
               <span>₹1,000</span>
+              <span>₹25,000</span>
               <span>₹50,000</span>
             </div>
           </div>
 
-          {/* Term slider */}
-          <div className="form-group mt-5">
-            <label className="form-label" htmlFor="loan-period-slider">
-              Repayment Term
-              <span className="form-label-value">{period} Months</span>
-            </label>
+          {/* Purpose */}
+          <div className="form-group">
+            <label className="form-label" htmlFor="loan-purpose">Purpose (plain language)</label>
             <input
-              type="range"
-              id="loan-period-slider"
-              className="amount-slider"
-              min="1" max="12" step="1"
-              value={period}
-              onChange={e => setPeriod(parseInt(e.target.value))}
-            />
-            <div className="slider-labels">
-              <span>1 Month</span>
-              <span>12 Months</span>
-            </div>
-          </div>
-
-          <div className="form-group mt-5">
-            <label className="form-label" htmlFor="loan-purpose-input">Loan Purpose</label>
-            <input
+              className="form-control"
+              id="loan-purpose"
               type="text"
-              id="loan-purpose-input"
-              className="form-input"
-              placeholder="e.g. Starting a small food stall"
+              placeholder="e.g. Buying a sewing machine for my tailoring business"
               value={purpose}
               onChange={e => setPurpose(e.target.value)}
               required
             />
           </div>
 
+          {/* Repayment period */}
           <div className="form-group">
-            <label className="form-label" htmlFor="loan-story-input">Your Story (Optional)</label>
+            <label className="form-label">Repayment Period</label>
+            <div className="duration-grid">
+              {[1, 3, 6].map(m => (
+                <button
+                  type="button"
+                  key={m}
+                  className={`btn-duration ${period === m ? 'active' : ''}`}
+                  onClick={() => setPeriod(m)}
+                  id={`period-${m}m`}
+                >
+                  <div className="font-semibold">{m} Month{m > 1 ? 's' : ''}</div>
+                  <div className="text-xs text-muted">{m * 4} weeks</div>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Optional story */}
+          <div className="form-group">
+            <label className="form-label" htmlFor="loan-story">
+              Your Story <span className="text-muted">(optional — increases funding chance)</span>
+            </label>
             <textarea
-              id="loan-story-input"
-              className="form-input"
+              className="form-control"
+              id="loan-story"
               rows="3"
-              placeholder="Tell lenders a bit more about how this loan helps you..."
+              placeholder="Tell lenders why this loan matters to you..."
               value={story}
               onChange={e => setStory(e.target.value)}
+              style={{ resize: 'vertical', minHeight: '80px' }}
             />
           </div>
 
-          <div className="security-hint mt-6" role="note">
-            <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M7 1L1.5 3.5v4.5C1.5 10.8 4 13 7 13.5c3-.5 5.5-2.7 5.5-5.5V3.5L7 1z"/>
-            </svg>
-            This loan is completely uncollateralized and relies on your on-chain TrustScore
+          {/* Photo upload hint */}
+          <div className="form-group">
+            <div className="upload-zone-sm">
+              <span>📷</span>
+              <span className="text-sm text-muted">Add a photo to your loan story (optional)</span>
+            </div>
           </div>
 
-          <button type="submit" className="btn btn-primary w-full mt-6" id="submit-loan-request-btn">
-            Sign &amp; Submit on Blockchain ⛓️
+          {/* Live estimate */}
+          <div className="live-estimate-panel">
+            <div className="flex justify-between items-center">
+              <span className="text-muted text-sm">Weekly repayment</span>
+              <span className="font-semibold text-lg">₹{weeklyPayment.toLocaleString('en-IN')}</span>
+            </div>
+          </div>
+
+          <button type="submit" className="btn btn-primary w-full mt-6" id="submit-loan-btn">
+             <svg viewBox="0 0 32 32" fill="none" width="16" height="16" aria-hidden="true" style={{marginRight: '8px', verticalAlign: 'middle'}}>
+                <path d="M29.5 12L20 4.5l-4-3-4 3-9.5 7.5L5 21l3 7.5L16 29l8-1.5 3-7.5 2.5-9z" fill="#F6851B" stroke="#F6851B" strokeWidth="1" strokeLinejoin="round"/>
+             </svg>
+            Sign & Submit with Web3 →
           </button>
+          <div className="text-center text-xs text-muted mt-3">
+            🔒 Fully decentralized blockchain architecture
+          </div>
         </form>
 
-        <div className="loan-sidebar d-none-mobile animate-fade-in-up stagger-2">
-          {/* Real-time blockchain preview */}
-          <div className="card">
-            <div className="card-title">Live Blockchain Preview</div>
-            <div className="card-subtitle mb-4">Calculated by TrustChain Smart Contract</div>
+        {/* Risk panel */}
+        <div className="card animate-fade-in-up stagger-2">
+          <div className="card-title mb-4">Auto Risk Assessment</div>
 
-            <div className="summary-row">
-              <span className="summary-label">Principal</span>
-              <span className="summary-value" id="preview-principal">₹{amount.toLocaleString('en-IN')}</span>
-            </div>
-            
-            <div className="summary-row">
-              <span className="summary-label text-warning">Dynamic Interest Rate</span>
-              <span className="summary-value text-warning" id="preview-interest">
-                {onChainRate ? `${onChainRate}%` : 'Calculating…'}
+          <div className="risk-tier-display text-center mb-6">
+            <div style={{ fontSize: '3rem', fontWeight: '800', color: riskColor[riskTier] }}>{riskTier}</div>
+            <span className={`pill ${riskPill[riskTier]}`}>Risk Tier</span>
+          </div>
+
+          <div className="risk-factors-list">
+            <div className="factor-row">
+              <span className="text-sm">Loan Amount</span>
+              <span className={`pill text-xs ${amount <= 15000 ? 'pill-success' : amount <= 30000 ? 'pill-warning' : 'pill-danger'}`}>
+                ₹{amount.toLocaleString('en-IN')}
               </span>
             </div>
-
-            <div className="summary-row">
-              <span className="summary-label">Your Initial Trust Score</span>
-              <span className="summary-value" style={{ color: trustScore >= 70 ? 'var(--color-success)' : 'var(--color-warning)' }}>
-                {trustScore ?? '50'}
+            <div className="factor-row">
+              <span className="text-sm">Repayment Period</span>
+              <span className="pill pill-success text-xs">{period} month{period > 1 ? 's' : ''}</span>
+            </div>
+            <div className="factor-row">
+              <span className="text-sm">Community Pod</span>
+              <span className={`pill text-xs ${podStrength === 'strong' ? 'pill-success' : 'pill-warning'}`}>
+                {podStrength.charAt(0).toUpperCase() + podStrength.slice(1)}
               </span>
             </div>
-
-            <div className="summary-total mt-4">
-              <span style={{ fontSize: '0.8rem', color: 'var(--color-muted)' }}>Estimated Weekly</span>
-              <span id="preview-weekly">₹{weeklyPayment.toLocaleString('en-IN')}</span>
+            <div className="factor-row">
+              <span className="text-sm">Verification</span>
+              <span className={`pill text-xs ${verification === 'ngo' ? 'pill-success' : 'pill-warning'}`}>
+                {verification === 'ngo' ? 'NGO + Phone' : verification === 'phone' ? 'Phone only' : 'None'}
+              </span>
             </div>
+          </div>
 
-            <div className="security-hint" style={{ marginTop: 'var(--sp-4)', background: 'rgba(0,0,0,0.02)' }}>
-              A higher TrustScore unlocks lower interest rates. Earning endorsements (+5) or repaying loans (+10) permanently improves your rates.
-            </div>
+          <div className="trust-hint mt-4">
+            {riskTier === 'Low' && '✅ Low risk — your loan will likely be funded quickly.'}
+            {riskTier === 'Medium' && '⚠️ Medium risk — consider adding more vouchers to improve funding chances.'}
+            {riskTier === 'High' && '🔴 High risk — the amount is large. Consider splitting across two requests.'}
           </div>
         </div>
       </div>
