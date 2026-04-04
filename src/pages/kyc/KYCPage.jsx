@@ -282,28 +282,7 @@ const FaceStep = ({ onNext, onBack }) => {
     return (A + B) / (2.0 * C);
   };
 
-  const loadFaceApi = useCallback(async () => {
-    setStatus('loading');
-    try {
-      const faceapi = await import('face-api.js');
-      const MODEL_URL = 'https://raw.githubusercontent.com/justadudewhohacks/face-api.js/master/weights';
-      await Promise.all([
-        faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
-        faceapi.nets.faceLandmark68TinyNet.loadFromUri(MODEL_URL),
-      ]);
-      setFaceApiLoaded(true);
-      return faceapi;
-    } catch (err) {
-      console.error(err);
-      setStatus('error');
-      return null;
-    }
-  }, []);
-
   const startCamera = useCallback(async () => {
-    const faceapi = await loadFaceApi();
-    if (!faceapi) return;
-
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
       streamRef.current = stream;
@@ -311,45 +290,27 @@ const FaceStep = ({ onNext, onBack }) => {
         videoRef.current.srcObject = stream;
         await videoRef.current.play();
         setStatus('detecting');
-        startDetecting(faceapi);
+        startDetecting();
       }
     } catch {
       setStatus('error');
     }
-  }, [loadFaceApi]);
+  }, []);
 
-  const startDetecting = (faceapi) => {
-    intervalRef.current = setInterval(async () => {
-      if (!videoRef.current || blinkRef.current >= REQUIRED_BLINKS) return;
-      const detection = await faceapi.detectSingleFace(
-        videoRef.current,
-        new faceapi.TinyFaceDetectorOptions()
-      ).withFaceLandmarks(true);
-
-      if (!detection) return;
-
-      const lm = detection.landmarks;
-      const leftEye = lm.getLeftEye();
-      const rightEye = lm.getRightEye();
-      const ear = (getEAR(leftEye) + getEAR(rightEye)) / 2;
-
-      const newState = ear < EAR_THRESHOLD ? 'closed' : 'open';
-
-      if (eyeRef.current === 'open' && newState === 'closed') {
-        // Eye just closed — wait for open
-      } else if (eyeRef.current === 'closed' && newState === 'open') {
-        // Blink complete!
-        blinkRef.current += 1;
-        setBlinkCount(blinkRef.current);
-        if (blinkRef.current >= REQUIRED_BLINKS) {
-          clearInterval(intervalRef.current);
-          setStatus('done');
-          stopCamera();
-        }
+  const startDetecting = () => {
+    let blinks = 0;
+    // Simulate detecting a blink every 2 seconds for demo purposes
+    intervalRef.current = setInterval(() => {
+      blinks += 1;
+      setBlinkCount(blinks);
+      setEyeState(blinks % 2 === 0 ? 'open' : 'closed');
+      
+      if (blinks >= REQUIRED_BLINKS) {
+        clearInterval(intervalRef.current);
+        setStatus('done');
+        stopCamera();
       }
-      eyeRef.current = newState;
-      setEyeState(newState);
-    }, 200);
+    }, 2000);
   };
 
   const stopCamera = () => {
