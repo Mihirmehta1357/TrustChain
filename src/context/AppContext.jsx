@@ -19,11 +19,43 @@ export const AppProvider = ({ children }) => {
   // Fetch full profile from Supabase
   const loadProfile = async (authUser) => {
     if (!authUser) return;
-    const { data: profile } = await supabase
+    const { data: existingProfile } = await supabase
       .from('profiles')
       .select('*')
       .eq('id', authUser.id)
-      .single();
+      .maybeSingle();
+
+    let profile = existingProfile;
+
+    if (!profile) {
+      const dbName = authUser.user_metadata?.full_name || authUser.email?.split('@')[0] || 'New User';
+      const payload = {
+        id: authUser.id,
+        full_name: dbName,
+        role: 'borrower',
+        trust_score: 50,
+        kyc_status: 'pending',
+        avatar_color: '#3B9B9B',
+      };
+      
+      // Try creating the profile if it's missing (fails gracefully if RLS or Schema is locked)
+      try {
+        const { data: newProfile, error: insertErr } = await supabase
+          .from('profiles')
+          .insert(payload)
+          .select()
+          .maybeSingle();
+          
+        if (!insertErr && newProfile) {
+          profile = newProfile;
+        } else if (insertErr) {
+          console.warn('Profile background sync pending (check RLS):', insertErr.message);
+          profile = { ...payload, sync_pending: true };
+        }
+      } catch (e) {
+        profile = { ...payload, sync_pending: true };
+      }
+    }
 
     if (profile) {
       const dbName = authUser.user_metadata?.full_name || profile.full_name || '';

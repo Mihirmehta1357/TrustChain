@@ -5,6 +5,7 @@ import { AppContext } from '../../context/AppContext';
 import { Web3Context } from '../../context/Web3Context';
 import { useToast } from '../../components/shared/ToastProvider';
 import { StatCard } from '../../components/shared/SharedComponents';
+import { fetchLenderLoans } from '../../utils/supabaseService';
 
 // ─── Utility ──────────────────────────────────────────────────────────────────
 const shortAddr = (addr) => addr ? `${addr.slice(0, 6)}…${addr.slice(-4)}` : '';
@@ -22,6 +23,7 @@ export const LenderDashboardPage = () => {
   const { contract, account, trustScore } = useContext(Web3Context);
 
   const [portfolio, setPortfolio]   = useState(null);
+  const [dbLoans, setDbLoans]       = useState([]);
   const [loading, setLoading]       = useState(true);
   const [endorsing, setEndorsing]   = useState(null);
 
@@ -66,11 +68,26 @@ export const LenderDashboardPage = () => {
     }
   };
 
+  const fetchDbLoans = async () => {
+    if (!user?.id) return;
+    try {
+      const loans = await fetchLenderLoans(user.id);
+      setDbLoans(loans);
+    } catch (e) {
+      console.error('Failed to fetch DB loans:', e);
+    }
+  };
+
   useEffect(() => {
-    fetchPortfolio();
-    const interval = setInterval(fetchPortfolio, 8000);
+    const load = async () => {
+      setLoading(true);
+      await Promise.all([fetchPortfolio(), fetchDbLoans()]);
+      setLoading(false);
+    };
+    load();
+    const interval = setInterval(load, 8000);
     return () => clearInterval(interval);
-  }, [contract, account]);
+  }, [contract, account, user?.id]);
 
   // ─── Endorse borrower from portfolio ──────────────────────────────────────
   const handleEndorse = async (borrowerAddress) => {

@@ -103,7 +103,7 @@ export const updateLoanStatus = async (loanId, updates) => {
     .update(updates)
     .eq('id', loanId)
     .select()
-    .single();
+    .maybeSingle();
   if (error) console.error('updateLoanStatus:', error);
   return { data, error };
 };
@@ -128,7 +128,7 @@ export const createTransaction = async ({ userId, type, actorName, amount, relat
       related_loan_id: relatedLoanId || null,
     })
     .select()
-    .single();
+    .maybeSingle();
   if (error) console.error('createTransaction:', error);
   return { data, error };
 };
