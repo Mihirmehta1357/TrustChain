@@ -1,4 +1,5 @@
 import React, { useContext, useEffect, useState } from 'react';
+import { ethers } from 'ethers';
 import { Web3Context } from '../../context/Web3Context';
 import { useToast } from '../../components/shared/ToastProvider';
 
@@ -20,9 +21,9 @@ export const RepaymentPage = () => {
         if (l.borrower.toLowerCase() === account.toLowerCase() && Number(l.status) === 1) {
           result.push({
             id: Number(l.id),
-            principal:    Number(l.principal),
+            principal:    Number(ethers.formatEther(l.principal)),
             interestRate: Number(l.interestRate),
-            totalOwed:    Number(l.totalOwed),
+            totalOwed:    Number(ethers.formatEther(l.totalOwed)),
             funder:       l.funder,
             purpose:      l.purpose,
           });
@@ -43,7 +44,7 @@ export const RepaymentPage = () => {
     setRepaying(loan.id);
     try {
       showToast(`Confirm repayment of ₹${loan.totalOwed.toLocaleString('en-IN')} in MetaMask…`, 'info');
-      const tx = await contract.repayLoan(loan.id, { value: BigInt(loan.totalOwed) });
+      const tx = await contract.repayLoan(loan.id, { value: ethers.parseEther(loan.totalOwed.toString()) });
       showToast('Repayment submitted — waiting for blockchain confirmation…', 'info');
       await tx.wait();
       showToast('🎉 Loan fully repaid! Your TrustScore increased by +10!', 'success');

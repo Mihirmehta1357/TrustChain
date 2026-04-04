@@ -4,6 +4,7 @@ import { AppContext } from '../../context/AppContext';
 import { Web3Context } from '../../context/Web3Context';
 import { useToast } from '../../components/shared/ToastProvider';
 import { calcLoan } from '../../utils/formatters';
+import { ethers } from 'ethers';
 
 export const RequestLoanPage = () => {
   const { podStrength, verification, kycCompleted } = useContext(AppContext);
@@ -13,7 +14,7 @@ export const RequestLoanPage = () => {
   const [story, setStory] = useState('');
   const [riskTier, setRiskTier] = useState('Low');
   const [weeklyPayment, setWeeklyPayment] = useState(0);
-  const { contract, account } = useContext(Web3Context);
+  const { contract, account, isRegistered } = useContext(Web3Context);
   const showToast = useToast();
   const navigate = useNavigate();
 
@@ -44,11 +45,15 @@ export const RequestLoanPage = () => {
       showToast('Please connect your MetaMask wallet first!', 'error');
       return;
     }
+    if (!isRegistered) {
+      showToast('Please activate your on-chain identity first! Click the banner in the left sidebar.', 'error');
+      return;
+    }
 
     try {
       showToast('Please confirm the transaction in MetaMask...', 'info');
-      // Execute the requestLoan function from TrustChain.sol
-      const tx = await contract.requestLoan(amount, purpose);
+      // Execute the requestLoan function from TrustChain.sol using proper ETH scaling
+      const tx = await contract.requestLoan(ethers.parseEther(amount.toString()), purpose);
       
       showToast('Waiting for blockchain confirmation...', 'info');
       await tx.wait(); // Wait for the block to be mined

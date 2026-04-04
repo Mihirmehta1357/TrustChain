@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Web3Context } from '../../context/Web3Context';
 import { AppContext } from '../../context/AppContext';
 import { useToast } from '../../components/shared/ToastProvider';
+import { ethers } from 'ethers';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const uid = () => Math.random().toString(36).slice(2, 10);
@@ -203,8 +204,8 @@ const CommunityLoanRequests = ({ communityId, account, contract }) => {
     try {
       // Optionally also write to blockchain
       if (contract) {
-        showToast('Posting loan request to blockchain…', 'info');
-        const tx = await contract.requestLoan(BigInt(amount), `[Community] ${purpose}`);
+        showToast('Confirming community loan request in MetaMask...', 'info');
+        const tx = await contract.requestLoan(ethers.parseEther(amount.toString()), `[Community] ${purpose}`);
         await tx.wait();
       }
       const req = {
@@ -254,7 +255,8 @@ const CommunityLoanRequests = ({ communityId, account, contract }) => {
         setFunding(null); return;
       }
       const loan = await contract.loans(loanId);
-      const tx = await contract.fundLoan(loanId, { value: BigInt(Number(loan.principal)) });
+      const tx = await contract.fundLoan(loanId, { value: loan.principal });
+      showToast('Funding transaction submitted...', 'info');
       await tx.wait();
       setCommunityLoanRequests(prev =>
         prev.map(r => r.id === req.id ? { ...r, funders: [...r.funders, account], status: 'funded' } : r)

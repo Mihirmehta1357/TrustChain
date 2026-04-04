@@ -5,6 +5,9 @@ import { Web3Context } from '../context/Web3Context';
 import { MOCK_ACTIVITY } from '../data/mockData';
 import { TrustGaugeLarge } from '../components/shared/SharedComponents';
 import { useScrollAnimation } from '../hooks/useScrollAnimation';
+import { LoanAgreementModal } from '../components/shared/LoanAgreementModal';
+import { useToast } from '../components/shared/ToastProvider';
+import { ethers } from 'ethers';
 
 const activityTypeLabel = (type) => {
   if (type === 'repaid')    return { label: 'Repaid',     color: 'var(--color-success)', bg: '#EAF3DE' };
@@ -17,12 +20,19 @@ const activityTypeLabel = (type) => {
 export const DashboardPage = () => {
   const { trustScore: appScore, activeLoan } = useContext(AppContext);
   const { contract, account, trustScore: onChainScore } = useContext(Web3Context);
-  const navigate = useNavigate();
+  const navigate  = useNavigate();
+  const showToast = useToast();
   useScrollAnimation('.animate-fade-in-up');
 
   // Live on-chain borrower data
-  const [myLoans, setMyLoans]         = useState([]);
-  const [liveLoading, setLiveLoading] = useState(true);
+  const [myLoans, setMyLoans]             = useState([]);
+  const [liveLoading, setLiveLoading]     = useState(true);
+  const [agreementStatuses, setAgreementStatuses] = useState({}); // loanId → {lenderSigned, borrowerSigned, proposedFunder}
+
+  // Agreement modal state for borrower countersign
+  const [agreementModalOpen, setAgreementModalOpen] = useState(false);
+  const [selectedLoan, setSelectedLoan]             = useState(null);
+  const [signingAgreement, setSigningAgreement]     = useState(false);
 
   useEffect(() => {
     const fetchMyLoans = async () => {
@@ -30,28 +40,66 @@ export const DashboardPage = () => {
       try {
         const count = await contract.getLoanCount();
         const result = [];
+        const statuses = {};
         for (let i = 0; i < Number(count); i++) {
           const l = await contract.loans(i);
           if (l.borrower.toLowerCase() === account.toLowerCase()) {
-            result.push({
+            const loanObj = {
               id:           Number(l.id),
-              principal:    Number(l.principal),
+              principal:    Number(ethers.formatEther(l.principal)),
               interestRate: Number(l.interestRate),
-              totalOwed:    Number(l.totalOwed),
+              totalOwed:    Number(ethers.formatEther(l.totalOwed)),
               status:       Number(l.status),
               purpose:      l.purpose,
               funder:       l.funder,
-            });
+              borrower:     l.borrower,
+            };
+            result.push(loanObj);
+            // Fetch agreement status for pending/funded loans
+            try {
+              const agrStatus = await contract.getAgreementStatus(i);
+              statuses[i] = {
+                lenderSigned:   agrStatus.lenderSigned,
+                borrowerSigned: agrStatus.borrowerSigned,
+                proposedFunder: agrStatus.proposedFunder,
+                bothSigned:     agrStatus.bothSigned,
+              };
+            } catch (_) { /* contract not redeployed yet */ }
           }
         }
         setMyLoans(result.reverse());
+        setAgreementStatuses(statuses);
       } catch (e) { console.error(e); }
       finally { setLiveLoading(false); }
     };
     fetchMyLoans();
-    const interval = setInterval(fetchMyLoans, 8000);
+    const interval = setInterval(fetchMyLoans, 5000);
     return () => clearInterval(interval);
   }, [contract, account]);
+
+  // Borrower countersigns the agreement
+  const handleBorrowerSign = async ({ esignName }) => {
+    if (!contract || !selectedLoan) return;
+    setSigningAgreement(true);
+    try {
+      showToast && showToast('Confirm your countersignature in MetaMask…', 'info');
+      const tx = await contract.signAgreementAsBorrower(selectedLoan.id);
+      await tx.wait();
+      setAgreementStatuses(prev => ({
+        ...prev,
+        [selectedLoan.id]: { ...prev[selectedLoan.id], borrowerSigned: true, bothSigned: true },
+      }));
+      setAgreementModalOpen(false);
+      showToast && showToast(`✅ Agreement countersigned as "${esignName}"! Lender can now release funds.`, 'success');
+    } catch (err) {
+      console.error(err);
+      const msg = err.reason || err.message || '';
+      showToast && showToast('Countersign failed: ' + msg, 'error');
+    } finally {
+      setSigningAgreement(false);
+    }
+  };
+
 
   const liveScore     = onChainScore ?? appScore;
   const activeLoans   = myLoans.filter(l => l.status === 1);
@@ -64,6 +112,7 @@ export const DashboardPage = () => {
   const pct        = activeLoan ? Math.round((activeLoan.paidInstallments / activeLoan.totalInstallments) * 100) : 0;
 
   return (
+    <>
     <section className="screen active" id="screen-dashboard" aria-label="Dashboard">
 
       {/* Greeting */}
@@ -206,6 +255,61 @@ export const DashboardPage = () => {
             </div>
           )}
 
+          {/* Pending loans with agreement status chips */}
+          {!liveLoading && myLoans.filter(l => l.status === 0).length > 0 && (
+            <div className="card animate-fade-in-up stagger-3">
+              <div className="loan-panel-header">
+                <div>
+                  <div className="card-title">Pending Loans</div>
+                  <div className="card-subtitle">Waiting for lender agreement or funding</div>
+                </div>
+              </div>
+              {myLoans.filter(l => l.status === 0).map(loan => {
+                const agr = agreementStatuses[loan.id];
+                const lenderDone   = agr?.lenderSigned;
+                const borrowerDone = agr?.borrowerSigned;
+                const bothDone     = agr?.bothSigned;
+                return (
+                  <div key={loan.id} style={{ padding: 'var(--sp-3) 0', borderBottom: '1px solid var(--color-border)' }}>
+                    <div className="flex justify-between items-start">
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontWeight: 600, marginBottom: 4 }}>Loan #{loan.id}</div>
+                        <div style={{ fontSize: '0.8rem', color: 'var(--color-muted)' }}>
+                          ₹{loan.principal.toLocaleString('en-IN')} · {loan.interestRate}% interest
+                        </div>
+                        {/* Agreement status chip */}
+                        <div style={{ marginTop: 8, display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                          {bothDone ? (
+                            <span style={{ fontSize: '0.7rem', fontWeight: 600, padding: '3px 10px', borderRadius: 20, background: 'rgba(34,197,94,0.1)', color: 'var(--color-success)', border: '1px solid rgba(34,197,94,0.25)' }}>
+                              ✅ Agreement signed — awaiting funding
+                            </span>
+                          ) : lenderDone && !borrowerDone ? (
+                            <>
+                              <span style={{ fontSize: '0.7rem', fontWeight: 600, padding: '3px 10px', borderRadius: 20, background: 'rgba(234,179,8,0.1)', color: '#B45309', border: '1px solid rgba(234,179,8,0.3)' }}>
+                                ✍️ Your counter-signature needed
+                              </span>
+                              <button
+                                style={{ fontSize: '0.7rem', padding: '3px 10px', background: 'var(--color-primary)', color: '#fff', border: 'none', borderRadius: 20, cursor: 'pointer', fontWeight: 600 }}
+                                onClick={() => { setSelectedLoan(loan); setAgreementModalOpen(true); }}
+                                id={`countersign-btn-${loan.id}`}
+                              >
+                                Review & Sign
+                              </button>
+                            </>
+                          ) : (
+                            <span style={{ fontSize: '0.7rem', padding: '3px 10px', borderRadius: 20, background: 'rgba(148,163,184,0.15)', color: 'var(--color-muted)', border: '1px solid var(--color-border)' }}>
+                              ⏳ Waiting for lender to propose agreement
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
           {/* Fallback if no on-chain loans */}
           {!liveLoading && activeLoans.length === 0 && (
             <div className="card animate-fade-in-up stagger-3" style={{ textAlign: 'center', padding: 'var(--sp-6)' }}>
@@ -274,5 +378,24 @@ export const DashboardPage = () => {
         </div>
       </div>
     </section>
+
+    {/* Borrower countersign modal */}
+    {selectedLoan && (
+      <LoanAgreementModal
+        isOpen={agreementModalOpen}
+        onClose={() => setAgreementModalOpen(false)}
+        onSign={handleBorrowerSign}
+        loan={{
+          ...selectedLoan,
+          borrower: selectedLoan.borrower,
+          totalOwed: selectedLoan.totalOwed,
+        }}
+        role="borrower"
+        lenderAddress={agreementStatuses[selectedLoan.id]?.proposedFunder || ''}
+        trustScore={liveScore ?? 50}
+        loading={signingAgreement}
+      />
+    )}
+    </>
   );
 };
