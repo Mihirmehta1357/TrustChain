@@ -1,6 +1,7 @@
-import React, { useContext } from 'react';
+import React, { useContext, useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../../context/AppContext';
+import { Web3Context } from '../../context/Web3Context';
 import { StatCard } from '../../components/shared/SharedComponents';
 
 const statusPill = (status) => status === 'completed'
@@ -9,7 +10,51 @@ const statusPill = (status) => status === 'completed'
 
 export const LenderDashboardPage = () => {
   const { lenderData } = useContext(AppContext);
+  const { contract, account } = useContext(Web3Context);
   const navigate = useNavigate();
+
+  const [liveFundedLoans, setLiveFundedLoans] = useState([]);
+  const [blockchainTotalLent, setBlockchainTotalLent] = useState(0);
+
+  useEffect(() => {
+    const fetchMyFundedLoans = async () => {
+      if (!contract || !account) return;
+      try {
+        const count = await contract.getLoanCount();
+        const loansArray = [];
+        let total = 0;
+        for (let i = 0; i < Number(count); i++) {
+          const lData = await contract.loans(i);
+          // Status 1 = Funded. Strictly match the funder address.
+          if (Number(lData.status) === 1 && lData.funder.toLowerCase() === account.toLowerCase()) {
+            const amt = Number(lData.amount);
+            total += amt;
+            loansArray.push({
+              id: `bc-${lData.id}`,
+              borrower: lData.borrower.substring(0, 6) + "..." + lData.borrower.substring(38),
+              amount: amt,
+              repaid: 0,
+              status: 'active',
+              riskTier: amt > 15000 ? 'High' : 'Low',
+              isBlockchain: true
+            });
+          }
+        }
+        setLiveFundedLoans(loansArray.reverse());
+        setBlockchainTotalLent(total);
+      } catch (err) {
+        console.error("Failed to fetch funded loans from blockchain:", err);
+      }
+    };
+    
+    fetchMyFundedLoans();
+    const interval = setInterval(fetchMyFundedLoans, 5000);
+    return () => clearInterval(interval);
+  }, [contract, account]);
+
+  const combinedLoans = [...liveFundedLoans, ...lenderData.myLoans];
+  const displayTotalLent = lenderData.totalLent + blockchainTotalLent;
+  const displayActiveLoans = lenderData.activeLoans + liveFundedLoans.length;
 
   const healthPct = lenderData.portfolioHealth;
 
@@ -22,13 +67,13 @@ export const LenderDashboardPage = () => {
 
       {/* Stat cards */}
       <div className="stat-cards-grid animate-fade-in-up stagger-1">
-        <StatCard label="Total Lent" value={`₹${lenderData.totalLent.toLocaleString('en-IN')}`}
+        <StatCard label="Total Lent" value={`₹${displayTotalLent.toLocaleString('en-IN')}`}
           sub="Across all loans" color="var(--color-warning)"
           icon={<svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><rect x="1" y="5" width="18" height="12" rx="2"/><path d="M1 9h18"/></svg>} />
         <StatCard label="Interest Earned" value={`₹${lenderData.interestEarned.toLocaleString('en-IN')}`}
           sub="Net returns" color="var(--color-success)"
           icon={<svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M1 15l5-7 4 3 4-6 5 3"/></svg>} />
-        <StatCard label="Active Loans" value={lenderData.activeLoans}
+        <StatCard label="Active Loans" value={displayActiveLoans}
           sub="Currently funded" color="var(--color-primary)"
           icon={<svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M10 2L3 6v6c0 4 3 6.5 7 8 4-1.5 7-4 7-8V6l-7-4z"/></svg>} />
         <StatCard label="Repayments Received" value={`₹${lenderData.repaymentsReceived.toLocaleString('en-IN')}`}
@@ -64,12 +109,15 @@ export const LenderDashboardPage = () => {
       <div className="card animate-fade-in-up stagger-3 mb-5">
         <div className="card-title mb-4">My Funded Loans</div>
         <div role="list" aria-label="Your funded loans">
-          {lenderData.myLoans.map(loan => {
-            const pct = Math.round((loan.repaid / loan.amount) * 100);
+          {combinedLoans.map(loan => {
+            const pct = Math.round((loan.repaid / loan.amount) * 100) || 0;
             return (
               <div key={loan.id} className="my-loan-row" role="listitem">
                 <div className="my-loan-info">
-                  <div className="font-medium text-sm">{loan.borrower}</div>
+                  <div className="font-medium text-sm flex items-center gap-2">
+                    {loan.borrower}
+                    {loan.isBlockchain && <span className="pill pill-success" style={{fontSize: '9px'}}>Real On-Chain</span>}
+                  </div>
                   <div className="text-xs text-muted">₹{loan.repaid.toLocaleString('en-IN')} of ₹{loan.amount.toLocaleString('en-IN')} repaid</div>
                 </div>
                 <div className="my-loan-progress" style={{ flex: 1, margin: '0 var(--sp-5)' }}>

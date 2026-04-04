@@ -6,7 +6,7 @@ import { useToast } from '../../components/shared/ToastProvider';
 import { calcLoan } from '../../utils/formatters';
 
 export const RequestLoanPage = () => {
-  const { podStrength, verification } = useContext(AppContext);
+  const { podStrength, verification, kycCompleted } = useContext(AppContext);
   const [amount, setAmount] = useState(10000);
   const [period, setPeriod] = useState(3);
   const [purpose, setPurpose] = useState('');
@@ -16,6 +16,18 @@ export const RequestLoanPage = () => {
   const { contract, account } = useContext(Web3Context);
   const showToast = useToast();
   const navigate = useNavigate();
+
+  // KYC Gate
+  if (!kycCompleted) {
+    return (
+      <section className="screen active" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '60vh', textAlign: 'center', gap: '16px' }}>
+        <div style={{ fontSize: '48px' }}>🔒</div>
+        <h2 style={{ fontSize: '20px', fontWeight: 700 }}>KYC Required</h2>
+        <p style={{ color: 'var(--color-text-muted)', maxWidth: '280px' }}>Complete your identity verification before requesting a loan.</p>
+        <button className="btn btn-primary" onClick={() => navigate('/kyc')} id="kyc-gate-loan-btn">Complete KYC →</button>
+      </section>
+    );
+  }
 
   useEffect(() => {
     const data = calcLoan(amount, period * 4, podStrength, verification);

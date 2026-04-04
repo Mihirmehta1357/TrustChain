@@ -1,5 +1,6 @@
-import React from 'react';
-import { NavLink } from 'react-router-dom';
+import React, { useContext } from 'react';
+import { NavLink, useNavigate } from 'react-router-dom';
+import { AppContext } from '../../context/AppContext';
 
 const NavItem = ({ to, icon, label, badge, onClick }) => (
   <NavLink
@@ -18,6 +19,8 @@ const NavItem = ({ to, icon, label, badge, onClick }) => (
 
 export const AppSidebar = ({ isOpen, setSidebarOpen }) => {
   const close = () => { if (window.innerWidth <= 768) setSidebarOpen(false); };
+  const { kycCompleted, user } = useContext(AppContext);
+  const navigate = useNavigate();
 
   return (
     <aside className={`app-sidebar ${isOpen ? 'open' : ''}`} id="app-sidebar" role="navigation" aria-label="App navigation">
@@ -32,12 +35,30 @@ export const AppSidebar = ({ isOpen, setSidebarOpen }) => {
       </div>
 
       <div className="sidebar-user">
-        <div className="avatar avatar-lg" style={{ background: '#3B9B9B' }}>RK</div>
+        <div className="avatar avatar-lg" style={{ background: user?.avatarColor || '#3B9B9B' }}>
+          {user?.initials || 'TC'}
+        </div>
         <div className="sidebar-user-info">
-          <div className="sidebar-user-name">Riya Kulkarni</div>
-          <div className="sidebar-user-pod">☀️ Sunrise Riders</div>
+          <div className="sidebar-user-name">{user?.name || 'TrustChain User'}</div>
+          <div className="sidebar-user-pod">{kycCompleted ? '✅ KYC Verified' : '⚠️ KYC Pending'}</div>
         </div>
       </div>
+
+      {/* KYC Banner */}
+      {!kycCompleted && (
+        <button
+          onClick={() => { navigate('/kyc'); close(); }}
+          style={{
+            margin: '0 var(--sp-4) var(--sp-3)', width: 'calc(100% - 2 * var(--sp-4))',
+            background: '#FDE8C0', color: '#B45309', border: 'none', borderRadius: '10px',
+            padding: '10px 12px', fontSize: '12px', fontWeight: 600, cursor: 'pointer',
+            textAlign: 'left', lineHeight: 1.4
+          }}
+          id="kyc-banner-btn"
+        >
+          ⚠ Complete KYC to unlock loans
+        </button>
+      )}
 
       <nav className="sidebar-nav" aria-label="App sections">
         {/* Main */}

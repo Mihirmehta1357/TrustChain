@@ -22,3 +22,23 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Hardhat specific
+cache/
+artifacts/
+typechain/
+typechain-types/
+coverage/
+coverage.json
+
+# Dependencies
+/.pnp
+.pnp.js
+
+# Env files (CRITICALLY IMPORTANT NOT TO COMMIT)
+.env
+.env.*
+!.env.example
+
+# Testing
+/coverage

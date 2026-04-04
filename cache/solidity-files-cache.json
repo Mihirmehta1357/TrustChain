@@ -1,9 +1,9 @@
 {
   "_format": "hh-sol-cache-2",
   "files": {
-    "D:\\ALL_FOLDERS\\NAKSHATRA_OK\\trustchain-react\\contracts\\TrustChain.sol": {
-      "lastModificationDate": 1775301599737,
-      "contentHash": "483cf9ccc58811bd055dc0d867c449ee",
+    "D:\\TrustChain\\contracts\\TrustChain.sol": {
+      "lastModificationDate": 1775308154966,
+      "contentHash": "c50ee8d9f18b72111b0025ffaffc25c4",
       "sourceName": "contracts/TrustChain.sol",
       "solcConfig": {
         "version": "0.8.24",

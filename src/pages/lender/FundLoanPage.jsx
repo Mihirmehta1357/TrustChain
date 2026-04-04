@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useContext } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Web3Context } from '../../context/Web3Context';
+import { AppContext } from '../../context/AppContext';
 import { MOCK_LOANS } from '../../data/mockData';
 import { useToast } from '../../components/shared/ToastProvider';
 import { fundPct, riskBadge } from '../../components/shared/SharedComponents';
@@ -10,10 +11,25 @@ export const FundLoanPage = () => {
   const location = useLocation();
   const showToast = useToast();
   const { contract, account } = useContext(Web3Context);
+  const { kycCompleted } = useContext(AppContext);
 
   // Fall back to first loan if no state passed
   const loan = location.state?.loan || MOCK_LOANS[0];
-  const [fundAmount, setFundAmount] = useState(Math.min(loan.amount - loan.funded, 2000));
+  const isBlockchainLoan = typeof loan.id === 'number';
+  const remainingAmount = loan.amount - loan.funded;
+  const [fundAmount, setFundAmount] = useState(isBlockchainLoan ? loan.amount : Math.min(remainingAmount, 2000));
+
+  // KYC Gate
+  if (!kycCompleted) {
+    return (
+      <section className="screen active" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '60vh', textAlign: 'center', gap: '16px' }}>
+        <div style={{ fontSize: '48px' }}>🔒</div>
+        <h2 style={{ fontSize: '20px', fontWeight: 700 }}>KYC Required</h2>
+        <p style={{ color: 'var(--color-text-muted)', maxWidth: '280px' }}>Complete your KYC verification before funding any loans.</p>
+        <button className="btn btn-primary" onClick={() => navigate('/kyc')} id="kyc-gate-fund-btn">Complete KYC →</button>
+      </section>
+    );
+  }
 
   const pct = fundPct(loan.funded, loan.amount);
   const interestRate = loan.riskTier === 'Low' ? 12 : loan.riskTier === 'Medium' ? 16 : 20;
@@ -30,11 +46,10 @@ export const FundLoanPage = () => {
       showToast('Please confirm the funding transaction in MetaMask...', 'info');
       
       // We check if it's a real blockchain loan vs a mockup
-      const isBlockchainLoan = typeof loan.id === 'number';
       const loanIdToFund = isBlockchainLoan ? loan.id : 0; // fallback to 0 for mock
       
       // Execute fundLoan on TrustChain contract, attaching native token value
-      const tx = await contract.fundLoan(loanIdToFund, { value: fundAmount });
+      const tx = await contract.fundLoan(loanIdToFund, { value: isBlockchainLoan ? loan.amount : fundAmount });
       
       showToast('Waiting for blockchain confirmation...', 'info');
       await tx.wait(); // Wait for the block to be mined
@@ -95,6 +110,7 @@ export const FundLoanPage = () => {
               step="500"
               value={fundAmount}
               onChange={e => setFundAmount(parseInt(e.target.value))}
+              disabled={isBlockchainLoan}
             />
             <div className="slider-labels">
               <span>₹500</span>

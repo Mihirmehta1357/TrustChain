@@ -53,11 +53,28 @@ export const Web3Provider = ({ children }) => {
           console.error("Auto-registration silently failed or aborted", e);
         }
 
+        return { account: accounts[0], signer: ethersSigner };
+
       } catch (error) {
         console.error("Wallet connection failed", error);
+        return null;
       }
     } else {
       alert("Please install MetaMask to use this feature!");
+      return null;
+    }
+  };
+
+  // The cryptograph Signature challenge to link Web3 identity to Supabase
+  const signAuthMessage = async (activeSigner = signer) => {
+    try {
+      if (!activeSigner) throw new Error("No signer available");
+      const message = "Sign this message to securely log into TrustChain with your wallet.";
+      const signature = await activeSigner.signMessage(message);
+      return signature;
+    } catch (err) {
+      console.error("Signature rejected by user", err);
+      return null;
     }
   };
 
@@ -81,7 +98,7 @@ export const Web3Provider = ({ children }) => {
   }, []);
 
   return (
-    <Web3Context.Provider value={{ account, connectWallet, contract, provider, signer }}>
+    <Web3Context.Provider value={{ account, connectWallet, signAuthMessage, contract, provider, signer }}>
       {children}
     </Web3Context.Provider>
   );

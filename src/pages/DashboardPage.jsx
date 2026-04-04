@@ -1,6 +1,7 @@
-import React, { useContext } from 'react';
+import React, { useContext, useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../context/AppContext';
+import { Web3Context } from '../context/Web3Context';
 import { MOCK_ACTIVITY } from '../data/mockData';
 import { StatCard, TrustGaugeLarge } from '../components/shared/SharedComponents';
 import { useScrollAnimation } from '../hooks/useScrollAnimation';
@@ -13,11 +14,49 @@ const activityTypeLabel = (type) => {
 };
 
 export const DashboardPage = () => {
-  const { trustScore, activeLoan } = useContext(AppContext);
+  const { trustScore, activeLoan: mockActiveLoan } = useContext(AppContext);
+  const { contract, account } = useContext(Web3Context);
   const navigate = useNavigate();
   useScrollAnimation('.animate-fade-in-up');
 
-  const pct = Math.round((activeLoan.paidInstallments / activeLoan.totalInstallments) * 100);
+  const [liveBorrowerLoan, setLiveBorrowerLoan] = useState(null);
+
+  useEffect(() => {
+    const fetchMyActiveLoan = async () => {
+      if (!contract || !account) return;
+      try {
+        const count = await contract.getLoanCount();
+        let foundLoan = null;
+        for (let i = Number(count) - 1; i >= 0; i--) {
+          const lData = await contract.loans(i);
+          if (lData.borrower.toLowerCase() === account.toLowerCase()) {
+            foundLoan = {
+              id: Number(lData.id),
+              amount: Number(lData.amount),
+              statusValue: Number(lData.status),
+              disbursed: Number(lData.status) === 1 ? 'Just Now' : 'Pending',
+              dueDate: Number(lData.status) === 1 ? 'In 30 Days' : 'TBD',
+              remaining: Number(lData.amount),
+              totalInstallments: 4,
+              paidInstallments: 0,
+              isBlockchain: true
+            };
+            break;
+          }
+        }
+        setLiveBorrowerLoan(foundLoan);
+      } catch (err) {
+        console.error('Failed to fetch borrower loan:', err);
+      }
+    };
+    
+    fetchMyActiveLoan();
+    const interval = setInterval(fetchMyActiveLoan, 5000);
+    return () => clearInterval(interval);
+  }, [contract, account]);
+
+  const activeLoan = liveBorrowerLoan || mockActiveLoan;
+  const pct = Math.round((activeLoan.paidInstallments / activeLoan.totalInstallments) * 100) || 0;
 
   return (
     <section className="screen active" id="screen-dashboard" aria-label="Dashboard">
@@ -91,10 +130,17 @@ export const DashboardPage = () => {
           <div className="card animate-fade-in-up stagger-3">
             <div className="loan-panel-header">
               <div>
-                <div className="card-title">Current Loan</div>
-                <div className="card-subtitle">Active · Disbursed {activeLoan.disbursed}</div>
+                <div className="card-title flex items-center gap-2">
+                  Current Loan 
+                  {activeLoan.isBlockchain && <span className="pill" style={{background: '#FDE8C0', color: '#F6851B', fontSize: '9px', padding: '2px 6px'}}>Real On-Chain</span>}
+                </div>
+                <div className="card-subtitle">
+                  {activeLoan.statusValue === 0 ? 'Waiting for a Lender...' : `Active · Disbursed ${activeLoan.disbursed}`}
+                </div>
               </div>
-              <span className="pill pill-success">On Track</span>
+              <span className={`pill ${activeLoan.statusValue === 0 ? 'pill-warning' : 'pill-success'}`}>
+                {activeLoan.statusValue === 0 ? 'Pending' : 'On Track'}
+              </span>
             </div>
             <div className="loan-amount-row">
               <span className="loan-currency">₹</span>
