@@ -21,9 +21,13 @@ export const AppProvider = ({ children }) => {
       .single();
     
     if (profile) {
+      const dbName = authUser.user_metadata?.full_name || profile.name || '';
       setUser({
         ...authUser,
         ...profile,
+        name: dbName,
+        phone: authUser.phone || profile.phone_number || '',
+        initials: dbName ? dbName.substring(0, 2).toUpperCase() : '??',
         kycStatus: profile.kyc_status, // map DB snake_case to app camelCase
       });
       setIsLoggedIn(true);

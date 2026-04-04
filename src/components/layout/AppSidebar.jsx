@@ -2,6 +2,7 @@ import React, { useContext } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { Web3Context } from '../../context/Web3Context';
 import { AppContext } from '../../context/AppContext';
+import { supabase } from '../../utils/supabaseClient';
 
 const NavItem = ({ to, icon, label, badge, onClick }) => (
   <NavLink
@@ -24,8 +25,13 @@ export const AppSidebar = ({ isOpen, setSidebarOpen }) => {
   const { kycCompleted, user } = useContext(AppContext);
   const navigate = useNavigate();
 
-  // Prefer Supabase user name if available, else fall back to wallet address display
-  const displayName  = user?.name || (account ? `${account.slice(0, 6)}…${account.slice(-4)}` : 'Not connected');
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    navigate('/login');
+  };
+
+  // Prefer Supabase user name, then phone, else fall back to wallet address display
+  const displayName  = user?.name || user?.phone || (account ? `${account.slice(0, 6)}…${account.slice(-4)}` : 'Not connected');
   const initials     = user?.initials || (account ? account.slice(2, 4).toUpperCase() : '??');
   const avatarColor  = user?.avatarColor || '#3B9B9B';
   const scoreColor   = trustScore >= 80 ? '#3B9B9B' : trustScore >= 60 ? '#E8A838' : '#E85A5A';
@@ -119,6 +125,14 @@ export const AppSidebar = ({ isOpen, setSidebarOpen }) => {
       </nav>
 
       <div className="sidebar-footer">
+        <button 
+          onClick={handleLogout}
+          className="btn btn-outline"
+          style={{ width: '100%', marginBottom: '12px', padding: '8px', fontSize: '13px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', background: 'transparent', border: '1px solid var(--color-border)', color: 'var(--color-text)', borderRadius: '8px', cursor: 'pointer' }}
+        >
+          <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
+          Log Out
+        </button>
         <div className="security-hint" role="note">
           <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="M7 1L1.5 3.5v4.5C1.5 10.8 4 13 7 13.5c3-.5 5.5-2.7 5.5-5.5V3.5L7 1z"/>

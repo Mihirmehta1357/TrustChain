@@ -68,10 +68,11 @@ export const TrustGaugeLarge = ({ score, size = 180 }) => {
   return (
     <div className="gauge-wrapper" style={{ width: size, height: size * 0.65 }}>
       <svg viewBox="0 0 240 145" width={size} height={size * 0.6}>
-        <path d="M 30 130 A 90 90 0 0 1 210 130" fill="none" stroke="#E8EDF2" strokeWidth="16" strokeLinecap="round" />
-        <path d="M 30 130 A 90 90 0 0 1 90 50" fill="none" stroke="#FFCDD0" strokeWidth="16" strokeLinecap="butt" />
-        <path d="M 90 50 A 90 90 0 0 1 165 50" fill="none" stroke="#FDE8C0" strokeWidth="16" strokeLinecap="butt" />
-        <path d="M 165 50 A 90 90 0 0 1 210 130" fill="none" stroke="#C8EDDA" strokeWidth="16" strokeLinecap="butt" />
+        <path d="M 30 130 A 90 90 0 0 1 210 130" fill="none" stroke="rgba(0,0,0,0.05)" strokeWidth="18" strokeLinecap="round" />
+        {/* Subtle Background Segments (Integrated) */}
+        <path d="M 30 130 A 90 90 0 0 1 90 50" fill="none" stroke="rgba(255, 0, 0, 0.1)" strokeWidth="18" strokeLinecap="butt" />
+        <path d="M 90 50 A 90 90 0 0 1 150 50" fill="none" stroke="rgba(255, 200, 0, 0.1)" strokeWidth="18" strokeLinecap="butt" />
+        <path d="M 150 50 A 90 90 0 0 1 210 130" fill="none" stroke="rgba(0, 255, 0, 0.1)" strokeWidth="18" strokeLinecap="butt" />
         <path
           d="M 30 130 A 90 90 0 0 1 210 130"
           fill="none"
@@ -81,9 +82,9 @@ export const TrustGaugeLarge = ({ score, size = 180 }) => {
           style={{ transition: 'stroke-dasharray 0.8s cubic-bezier(0.16,1,0.3,1), stroke 0.5s ease' }}
         />
       </svg>
-      <div className="gauge-center" style={{ bottom: '0px', transform: 'translate(-50%, 0)' }}>
-        <div className="gauge-score" style={{ color, fontSize: size > 160 ? '2.5rem' : '1.8rem' }}>{score}</div>
-        <div className="gauge-label">Trust Score</div>
+      <div className="gauge-center" style={{ position: 'absolute', left: '50%', bottom: '8px', transform: 'translateX(-50%)', textAlign: 'center' }}>
+        <div className="gauge-score" style={{ color, fontSize: size > 160 ? '2.8rem' : '2rem', fontWeight: 800, lineHeight: 1 }}>{score}</div>
+        <div className="gauge-label" style={{ fontSize: '0.75rem', color: 'var(--color-muted)', textTransform: 'uppercase', marginTop: '4px', fontWeight: 600 }}>Trust Score</div>
       </div>
     </div>
   );
