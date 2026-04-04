@@ -19,8 +19,9 @@ import { TransactionLogPage } from './pages/TransactionLogPage';
 // Borrower
 import { BorrowerProfilePage } from './pages/borrower/BorrowerProfilePage';
 import { RequestLoanPage } from './pages/borrower/RequestLoanPage';
-import { RepaymentTrackerPage } from './pages/borrower/RepaymentTrackerPage';
+import { RepaymentPage } from './pages/borrower/RepaymentPage';
 import { CommunityVouchingPage } from './pages/borrower/CommunityVouchingPage';
+import { CommunityPage } from './pages/borrower/CommunityPage';
 
 // Lender
 import { BrowseLoansPage } from './pages/lender/BrowseLoansPage';
@@ -79,11 +80,14 @@ export default function App() {
             <Route path="/loan" element={<AppLayout />}>
               <Route index element={<Navigate to="request" replace />} />
               <Route path="request" element={<RequestLoanPage />} />
-              <Route path="repayment" element={<RepaymentTrackerPage />} />
+              <Route path="repayment" element={<RepaymentPage />} />
               <Route path="fund" element={<FundLoanPage />} />
             </Route>
             <Route path="/vouch" element={<AppLayout />}>
               <Route index element={<CommunityVouchingPage />} />
+            </Route>
+            <Route path="/community" element={<AppLayout />}>
+              <Route index element={<CommunityPage />} />
             </Route>
 
             {/* Lender */}

@@ -7,17 +7,20 @@ import { useToast } from '../../components/shared/ToastProvider';
 import { fundPct, riskBadge } from '../../components/shared/SharedComponents';
 
 export const FundLoanPage = () => {
-  const navigate = useNavigate();
-  const location = useLocation();
+  const navigate  = useNavigate();
+  const location  = useLocation();
   const showToast = useToast();
-  const { contract, account } = useContext(Web3Context);
+  const { contract, account, refreshTrustScore } = useContext(Web3Context);
   const { kycCompleted } = useContext(AppContext);
 
-  // Fall back to first loan if no state passed
   const loan = location.state?.loan || MOCK_LOANS[0];
-  const isBlockchainLoan = typeof loan.id === 'number';
-  const remainingAmount = loan.amount - loan.funded;
-  const [fundAmount, setFundAmount] = useState(isBlockchainLoan ? loan.amount : Math.min(remainingAmount, 2000));
+
+  // For blockchain loans principal is stored; for mocks fallback to amount
+  const principal = loan.principal ?? loan.amount;
+  const isBlockchainLoan = typeof loan.id === 'number' && loan.borrowerAddress;
+  
+  const remainingAmount = loan.amount ? loan.amount - (loan.funded || 0) : principal; // Fallback if no funded val
+  const [fundAmount, setFundAmount] = useState(isBlockchainLoan ? principal : Math.min(remainingAmount, 2000));
 
   // KYC Gate
   if (!kycCompleted) {
@@ -31,9 +34,13 @@ export const FundLoanPage = () => {
     );
   }
 
-  const pct = fundPct(loan.funded, loan.amount);
-  const interestRate = loan.riskTier === 'Low' ? 12 : loan.riskTier === 'Medium' ? 16 : 20;
-  const expectedReturn = Math.round(fundAmount * (1 + (interestRate / 100) * (parseInt(loan.repaymentPeriod) / 12)));
+  const [funding, setFunding]     = useState(false);
+  const [endorsing, setEndorsing] = useState(false);
+
+  const pct            = fundPct(loan.funded ?? 0, principal);
+  // On-chain interestRate stored on loan; fallback to tier mapping for mocks
+  const interestRate   = loan.interestRate ?? (loan.riskTier === 'Low' ? 12 : loan.riskTier === 'Medium' ? 16 : 20);
+  const expectedReturn = loan.totalOwed ?? Math.round(principal * (1 + interestRate / 100));
   const { cls, label } = riskBadge(loan.riskTier);
 
   const handleConfirm = async () => {
@@ -41,158 +48,183 @@ export const FundLoanPage = () => {
       showToast('Please connect your MetaMask wallet first!', 'error');
       return;
     }
-
+    setFunding(true);
     try {
-      showToast('Please confirm the funding transaction in MetaMask...', 'info');
-      
-      // We check if it's a real blockchain loan vs a mockup
-      const loanIdToFund = isBlockchainLoan ? loan.id : 0; // fallback to 0 for mock
-      
-      // Execute fundLoan on TrustChain contract, attaching native token value
-      const tx = await contract.fundLoan(loanIdToFund, { value: isBlockchainLoan ? loan.amount : fundAmount });
-      
-      showToast('Waiting for blockchain confirmation...', 'info');
-      await tx.wait(); // Wait for the block to be mined
-      
-      showToast(`✅ ₹${fundAmount.toLocaleString('en-IN')} funded successfully via Blockchain!`, 'success');
-      navigate('/app/lender');
+      showToast('Please confirm the funding transaction in MetaMask…', 'info');
+      // Send exact principal as BigInt wei for real loans, else simulated fundAmount
+      const loanId = isBlockchainLoan ? loan.id : 0;
+      const valToSend = isBlockchainLoan ? principal : fundAmount;
+      const tx     = await contract.fundLoan(loanId, { value: BigInt(valToSend) });
+      showToast('Waiting for blockchain confirmation…', 'info');
+      await tx.wait();
+      showToast(`✅ ₹${valToSend.toLocaleString('en-IN')} funded! Lend again to diversify.`, 'success');
+      navigate('/lender'); // Fixed route from /app/lender
     } catch (err) {
       console.error(err);
-      showToast('Transaction was rejected or failed.', 'error');
+      showToast('Transaction failed: ' + (err.reason || err.message), 'error');
+    } finally {
+      setFunding(false);
+    }
+  };
+
+  const handleEndorse = async () => {
+    if (!contract || !account || !isBlockchainLoan) {
+      showToast('Can only endorse blockchain borrowers.', 'error');
+      return;
+    }
+    setEndorsing(true);
+    try {
+      showToast('Confirm endorsement in MetaMask…', 'info');
+      const tx = await contract.endorseUser(loan.borrowerAddress);
+      await tx.wait();
+      showToast('🌟 Endorsement committed on-chain. Borrower Trust Score +5.', 'success');
+      refreshTrustScore?.(account, contract);
+    } catch (err) {
+      console.error(err);
+      if (err.reason?.includes('Already endorsed')) showToast('You have already endorsed this user.', 'error');
+      else showToast('Endorsement failed: ' + (err.reason || err.message), 'error');
+    } finally {
+      setEndorsing(false);
     }
   };
 
   return (
-    <section className="screen active" aria-label="Fund a Loan">
+    <section className="screen active" aria-label="Fund Loan">
       <div className="loan-grid">
+        {/* Left Col: Loan Details */}
+        <div className="loan-scroll animate-fade-in-up">
+          <div className="card-title text-2xl flex items-center gap-3">
+            {loan.borrower}
+            {isBlockchainLoan && <span className="pill pill-warning" style={{ fontSize: '10px' }}>⛓️ Web3 Identity</span>}
+          </div>
+          <div className="card-subtitle text-lg font-medium" style={{ color: 'var(--color-primary)' }}>
+            {loan.purpose}
+          </div>
 
-        {/* Left — Details */}
-        <div className="card animate-fade-in-up">
-          <div className="card-title mb-1">Fund This Loan</div>
-          <div className="card-subtitle mb-5">Review borrower details before committing</div>
+          <div style={{ display: 'flex', gap: 'var(--sp-2)', marginTop: 'var(--sp-4)' }}>
+            <span className={`pill ${cls}`}>{label} risk</span>
+            <span className="pill" style={{ background: '#F1F5F9' }}>{interestRate}% Return</span>
+            <span className="pill" style={{ background: '#F1F5F9' }}>{loan.term}</span>
+          </div>
 
-          {/* Borrower summary card */}
-          <div className="borrower-summary-card">
-            <div className="avatar avatar-lg" style={{ background: loan.avatarColor }}>{loan.initials}</div>
-            <div className="borrower-summary-info">
-              <div className="font-semibold">{loan.borrower}</div>
-              <div className="text-xs text-muted">{loan.location} · Trust Score: {loan.trustScore}</div>
-              <span className={`pill ${cls} text-xs mt-1`} style={{ display: 'inline-block' }}>{label}</span>
+          {!isBlockchainLoan && pct < 100 && (
+            <div className="funding-progress-section" style={{ marginTop: 'var(--sp-6)' }}>
+              <div className="progress-bar lg" role="progressbar" aria-valuenow={pct} aria-valuemin="0" aria-valuemax="100">
+                <div className="progress-fill" style={{ width: `${pct}%` }} />
+              </div>
+              <div className="flex justify-between items-end mt-2">
+                <div>
+                  <div className="progress-value">₹{(loan.funded ?? 0).toLocaleString('en-IN')}</div>
+                  <div className="text-sm text-muted">funded of ₹{principal.toLocaleString('en-IN')}</div>
+                </div>
+                <div className="text-xl font-bold" style={{ color: 'var(--color-primary)' }}>{pct}%</div>
+              </div>
+            </div>
+          )}
+
+          <div className="divider" style={{ margin: 'var(--sp-6) 0' }} />
+
+          <div className="card-title text-lg mb-4">Borrower Profile</div>
+          <div className="stats-row">
+            <div className="stat-col text-center">
+              <div className="text-muted text-xs uppercase tracking-wider mb-1">Trust Score</div>
+              <div className="text-2xl font-bold" style={{ color: "var(--color-success)" }}>
+                {isBlockchainLoan ? loan.trustScore : (loan.score || 'A+')}
+              </div>
+            </div>
+            <div className="divider-v" />
+            <div className="stat-col text-center">
+              <div className="text-muted text-xs uppercase tracking-wider mb-1">Repayments</div>
+              <div className="text-2xl font-bold">{isBlockchainLoan ? loan.repaidCount : '12'}</div>
+            </div>
+            <div className="divider-v" />
+            <div className="stat-col text-center">
+              <div className="text-muted text-xs uppercase tracking-wider mb-1">Endorsements</div>
+              <div className="text-2xl font-bold">{isBlockchainLoan ? loan.endorsements : '8'}</div>
             </div>
           </div>
 
-          <div className="loan-purpose-text mt-4">"{loan.story}"</div>
-
-          {/* Funding progress */}
-          <div className="mt-5">
-            <div className="loan-progress-label">
-              <span>₹{loan.funded.toLocaleString('en-IN')} funded</span>
-              <span>of ₹{loan.amount.toLocaleString('en-IN')} · {pct}%</span>
+          {isBlockchainLoan && (
+            <div style={{ marginTop: 'var(--sp-6)' }}>
+              <button
+                className="btn btn-outline w-full"
+                onClick={handleEndorse}
+                disabled={endorsing}
+                id="endorse-fund-btn"
+                style={{ borderColor: 'var(--color-primary)', color: 'var(--color-primary)' }}
+              >
+                {endorsing ? '⏳ Endorsing on blockchain...' : '🌟 Endorse this Borrower'}
+              </button>
+              <div className="text-xs text-center text-muted mt-2">
+                Stakes your reputation to boost their trust score.
+              </div>
             </div>
-            <div className="progress-bar" role="progressbar" aria-valuenow={pct} aria-valuemin="0" aria-valuemax="100">
-              <div className="progress-fill" style={{ width: `${pct}%` }} />
-            </div>
-            <div className="text-xs text-muted mt-1">{loan.daysLeft} days left · {loan.repaymentPeriod} term</div>
-          </div>
-
-          {/* Amount to fund */}
-          <div className="form-group mt-6">
-            <label className="form-label" htmlFor="fund-amount">
-              Amount to Fund (₹)
-              <span className="form-label-value">₹{fundAmount.toLocaleString('en-IN')}</span>
-            </label>
-            <input
-              type="range"
-              id="fund-amount"
-              className="amount-slider"
-              min="500"
-              max={loan.amount - loan.funded}
-              step="500"
-              value={fundAmount}
-              onChange={e => setFundAmount(parseInt(e.target.value))}
-              disabled={isBlockchainLoan}
-            />
-            <div className="slider-labels">
-              <span>₹500</span>
-              <span>₹{Math.round((loan.amount - loan.funded) / 2).toLocaleString('en-IN')}</span>
-              <span>₹{(loan.amount - loan.funded).toLocaleString('en-IN')}</span>
-            </div>
-          </div>
-
-          {/* Expected return */}
-          <div className="live-estimate-panel mt-4" style={{ background: '#FDE8C0', border: '1px solid #FAC775' }}>
-            <div className="flex justify-between items-center">
-              <span className="text-sm font-medium" style={{ color: 'var(--color-warning)' }}>Expected Return</span>
-              <span className="font-bold text-lg" style={{ color: 'var(--color-warning)' }}>
-                ₹{expectedReturn.toLocaleString('en-IN')}
-              </span>
-            </div>
-            <div className="text-xs text-muted mt-1">
-              {interestRate}% p.a. · +₹{(expectedReturn - fundAmount).toLocaleString('en-IN')} interest over {loan.repaymentPeriod}
-            </div>
-          </div>
-
-          {/* Smart contract summary */}
-          <div className="card mt-4" style={{ background: '#EEEDFE', border: '1px solid #AFA9EC' }}>
-            <div className="font-semibold text-sm mb-2" style={{ color: '#534AB7' }}>Smart Contract Summary</div>
-            <div className="contract-terms text-xs" style={{ color: '#534AB7', lineHeight: 1.8 }}>
-              <div>• Loan: ₹{loan.amount.toLocaleString('en-IN')} total · ₹{fundAmount.toLocaleString('en-IN')} your share</div>
-              <div>• Repayment: Weekly instalments over {loan.repaymentPeriod}</div>
-              <div>• Risk: {loan.riskTier} · Trust Score: {loan.trustScore}/100</div>
-              <div>• Community vouchers: verified</div>
-              <div>• Simulated — no real funds transferred</div>
-            </div>
-          </div>
-
-          <button
-            className="btn btn-primary w-full mt-5"
-            id="confirm-fund-btn"
-            onClick={handleConfirm}
-          >
-             <svg viewBox="0 0 32 32" fill="none" width="16" height="16" aria-hidden="true" style={{marginRight: '8px', verticalAlign: 'middle'}}>
-                <path d="M29.5 12L20 4.5l-4-3-4 3-9.5 7.5L5 21l3 7.5L16 29l8-1.5 3-7.5 2.5-9z" fill="#F6851B" stroke="#F6851B" strokeWidth="1" strokeLinejoin="round"/>
-             </svg>
-            Fund ₹{fundAmount.toLocaleString('en-IN')} with Web3 →
-          </button>
+          )}
         </div>
 
-        {/* Right — Risk panel */}
-        <div className="card animate-fade-in-up stagger-2">
-          <div className="card-title mb-4">Risk &amp; Return Analysis</div>
+        {/* Right Col: Funding Actions */}
+        <div className="loan-sidebar animate-fade-in-up stagger-2">
+          <div className="card" style={{ position: 'sticky', top: 'var(--sp-4)' }}>
+            <div className="card-title mb-4">Commit Funds</div>
 
-          <div className="risk-tier-display text-center mb-5">
-            <div style={{ fontSize: '2.5rem', fontWeight: '800', color: loan.riskTier === 'Low' ? 'var(--color-success)' : loan.riskTier === 'Medium' ? 'var(--color-warning)' : 'var(--color-danger)' }}>
-              {loan.riskTier}
+            {!isBlockchainLoan ? (
+              <div className="form-group mb-5">
+                <label className="form-label" htmlFor="fund-amount-slider">
+                  Amount to Fund (₹)
+                  <span className="form-label-value">₹{fundAmount.toLocaleString('en-IN')}</span>
+                </label>
+                <input
+                  type="range"
+                  id="fund-amount-slider"
+                  className="amount-slider"
+                  min="500"
+                  max={remainingAmount}
+                  step="500"
+                  value={fundAmount}
+                  onChange={e => setFundAmount(parseInt(e.target.value))}
+                />
+              </div>
+            ) : (
+              <div className="form-group mb-5">
+                <div className="security-hint">
+                  This on-chain loan requires a single flat funding of the exact principal: <strong>₹{principal.toLocaleString('en-IN')}</strong>.
+                </div>
+              </div>
+            )}
+
+            <div className="summary-card" style={{ background: '#F8FAFC', padding: 'var(--sp-4)', borderRadius: 'var(--radius-md)', marginBottom: 'var(--sp-6)' }}>
+              <div className="summary-row mb-3">
+                <span className="text-muted text-sm">Principal</span>
+                <span className="font-medium text-sm">₹{isBlockchainLoan ? principal.toLocaleString('en-IN') : fundAmount.toLocaleString('en-IN')}</span>
+              </div>
+              <div className="summary-row mb-3">
+                <span className="text-muted text-sm">Expected Return</span>
+                <span className="font-bold text-sm" style={{ color: 'var(--color-success)' }}>
+                  +₹{isBlockchainLoan ? (expectedReturn - principal).toLocaleString('en-IN') : Math.round(fundAmount * (interestRate / 100)).toLocaleString('en-IN')}
+                </span>
+              </div>
+              <div className="divider mb-3" style={{ opacity: 0.5 }} />
+              <div className="summary-row">
+                <span className="font-medium">Total Received</span>
+                <span className="text-xl font-extrabold" style={{ color: 'var(--color-primary)' }}>
+                  ₹{isBlockchainLoan ? expectedReturn.toLocaleString('en-IN') : Math.round(fundAmount * (1 + interestRate / 100)).toLocaleString('en-IN')}
+                </span>
+              </div>
             </div>
-            <div className="text-muted text-sm">Risk Tier</div>
-          </div>
 
-          <div className="factor-row">
-            <span className="text-sm">Borrower Trust Score</span>
-            <span className="font-semibold">{loan.trustScore}/100</span>
+            <button
+              className="btn btn-primary w-full"
+              style={{ padding: 'var(--sp-3) var(--sp-4)', fontSize: '1rem' }}
+              onClick={handleConfirm}
+              disabled={funding}
+              id="confirm-fund-btn"
+            >
+              {funding ? 'Confirming on Blockchain...' : 'Sign & Transfer Funds 💸'}
+            </button>
+            <div className="text-center font-monospace mt-3" style={{ fontSize: '0.75rem', color: 'var(--color-muted)' }}>
+              Protected by TrustChain Smart Contract
+            </div>
           </div>
-          <div className="factor-row">
-            <span className="text-sm">Interest Rate</span>
-            <span className="font-semibold">{interestRate}% p.a.</span>
-          </div>
-          <div className="factor-row">
-            <span className="text-sm">Repayment Period</span>
-            <span className="font-semibold">{loan.repaymentPeriod}</span>
-          </div>
-          <div className="factor-row">
-            <span className="text-sm">Already Funded</span>
-            <span className="font-semibold">{pct}%</span>
-          </div>
-
-          <div className="trust-hint mt-5">
-            {loan.riskTier === 'Low' && '✅ Low-risk loan — strong trust score and community backing.'}
-            {loan.riskTier === 'Medium' && '⚠️ Medium risk — borrower has good history but limited vouchers.'}
-            {loan.riskTier === 'High' && '🔴 High risk — diversify your portfolio if funding this loan.'}
-          </div>
-
-          <button className="btn btn-outline w-full mt-5" onClick={() => navigate('/loans')} id="back-to-loans-btn">
-            ← Browse Other Loans
-          </button>
         </div>
       </div>
     </section>

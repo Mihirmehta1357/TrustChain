@@ -1,5 +1,6 @@
 import React, { useContext } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
+import { Web3Context } from '../../context/Web3Context';
 import { AppContext } from '../../context/AppContext';
 
 const NavItem = ({ to, icon, label, badge, onClick }) => (
@@ -19,8 +20,15 @@ const NavItem = ({ to, icon, label, badge, onClick }) => (
 
 export const AppSidebar = ({ isOpen, setSidebarOpen }) => {
   const close = () => { if (window.innerWidth <= 768) setSidebarOpen(false); };
+  const { account, trustScore } = useContext(Web3Context);
   const { kycCompleted, user } = useContext(AppContext);
   const navigate = useNavigate();
+
+  // Prefer Supabase user name if available, else fall back to wallet address display
+  const displayName  = user?.name || (account ? `${account.slice(0, 6)}…${account.slice(-4)}` : 'Not connected');
+  const initials     = user?.initials || (account ? account.slice(2, 4).toUpperCase() : '??');
+  const avatarColor  = user?.avatarColor || '#3B9B9B';
+  const scoreColor   = trustScore >= 80 ? '#3B9B9B' : trustScore >= 60 ? '#E8A838' : '#E85A5A';
 
   return (
     <aside className={`app-sidebar ${isOpen ? 'open' : ''}`} id="app-sidebar" role="navigation" aria-label="App navigation">
@@ -34,13 +42,20 @@ export const AppSidebar = ({ isOpen, setSidebarOpen }) => {
         <div className="sidebar-logo"><span>TrustChain</span></div>
       </div>
 
+      {/* User info */}
       <div className="sidebar-user">
-        <div className="avatar avatar-lg" style={{ background: user?.avatarColor || '#3B9B9B' }}>
-          {user?.initials || 'TC'}
-        </div>
+        <div className="avatar avatar-lg" style={{ background: avatarColor }}>{initials}</div>
         <div className="sidebar-user-info">
-          <div className="sidebar-user-name">{user?.name || 'TrustChain User'}</div>
-          <div className="sidebar-user-pod">{kycCompleted ? '✅ KYC Verified' : '⚠️ KYC Pending'}</div>
+          <div className="sidebar-user-name" style={{ fontFamily: user?.name ? 'inherit' : 'monospace', fontSize: '0.8rem' }}>{displayName}</div>
+          {trustScore !== null ? (
+            <div className="sidebar-user-pod">
+              <span style={{ color: scoreColor, fontWeight: 700 }}>⛓️ Score: {trustScore}</span>
+            </div>
+          ) : (
+            <div className="sidebar-user-pod">
+              {kycCompleted ? '✅ KYC Verified' : '⚠️ KYC Pending'}
+            </div>
+          )}
         </div>
       </div>
 
@@ -76,7 +91,7 @@ export const AppSidebar = ({ isOpen, setSidebarOpen }) => {
           icon={<><rect x="1" y="4" width="16" height="12" rx="2"/><path d="M1 8h16M5 12h2M9 12h4"/></>} />
         <NavItem to="/loan/repayment" label="Repayment Tracker" onClick={close}
           icon={<><circle cx="9" cy="9" r="7"/><path d="M9 6v3l2 2"/></>} />
-        <NavItem to="/vouch" label="Community Vouch" onClick={close}
+        <NavItem to="/community" label="My Community" onClick={close}
           icon={<><circle cx="6" cy="7" r="2.5"/><circle cx="12" cy="7" r="2.5"/><path d="M1 15c0-3 2.2-5 5-5h6c2.8 0 5 2 5 5"/></>} />
 
         {/* Lender */}
@@ -101,13 +116,6 @@ export const AppSidebar = ({ isOpen, setSidebarOpen }) => {
           icon={<><circle cx="9" cy="9" r="7"/><path d="M9 6v3M9 12v.5"/></>} />
         <NavItem to="/governance" label="Loan Approval" onClick={close}
           icon={<><path d="M1 9h16M5 5l4 4 4-4M5 13l4-4 4 4"/></>} />
-
-        {/* Account */}
-        <div className="nav-section-label" style={{ marginTop: 'var(--sp-4)' }}>Account</div>
-        <NavItem to="/app/simulation" label="Trust Simulator" onClick={close}
-          icon={<><path d="M1 14L6 8l4 3 4-5 3 2"/></>} />
-        <NavItem to="/app/pod" label="Community Pod" onClick={close}
-          icon={<><circle cx="6" cy="7" r="2.5"/><circle cx="12" cy="7" r="2.5"/><path d="M1 15c0-3 2.2-5 5-5h2M10 15c0-3 2.2-5 5-5H9"/></>} />
       </nav>
 
       <div className="sidebar-footer">
