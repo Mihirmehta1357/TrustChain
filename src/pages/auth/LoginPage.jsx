@@ -10,7 +10,9 @@ const inputStyle = {
   fontFamily: 'inherit',
   color: '#1A2B3D',
   background: '#FFFFFF',
-  border: '1.5px solid #E8EDF2',
+  borderWidth: '1.5px',
+  borderStyle: 'solid',
+  borderColor: '#E8EDF2',
   borderRadius: '10px',
   outline: 'none',
   transition: 'border-color 0.15s ease, box-shadow 0.15s ease',
@@ -55,7 +57,7 @@ export const LoginPage = () => {
       .from('profiles')
       .select('*')
       .eq('id', data.user.id)
-      .single();
+      .maybeSingle(); // Prevents 406 when profile row doesn't exist yet
 
     setUser({
       id: data.user.id,

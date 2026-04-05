@@ -64,6 +64,29 @@ export const Web3Provider = ({ children }) => {
         setRtkContract(rtk);
         const balWei = await rtk.balanceOf(addr);
         setRtkBalance(ethers.formatUnits(balWei, 18));
+        
+        // Auto-add RTK to wallet visually (only prompt once per device/browser)
+        if (!window.__RTK_PROMPTED && !localStorage.getItem('rtk_added')) {
+          window.__RTK_PROMPTED = true; // Use synchronous memory flag immediately to stop concurrent React strict-mode calls
+          try {
+            await window.ethereum.request({
+              method: 'wallet_watchAsset',
+              params: {
+                type: 'ERC20',
+                options: {
+                  address: rtkAddress,
+                  symbol: 'RTK',
+                  decimals: 18,
+                  image: 'https://upload.wikimedia.org/wikipedia/commons/e/ee/React-icon.svg',
+                },
+              },
+            });
+            localStorage.setItem('rtk_added', 'true');
+          } catch (watchErr) {
+            console.warn("User dismissed or failed RTK token watch prompt", watchErr);
+            localStorage.setItem('rtk_added', 'true');
+          }
+        }
       } catch (err) {
         console.error("Failed to load RTK Token", err);
       }
@@ -125,6 +148,23 @@ export const Web3Provider = ({ children }) => {
     }
   };
 
+  // ─── claimFaucet: Request mock RTK for testing ────────────────────────────
+  const claimFaucet = async () => {
+    if (!rtkContract) return false;
+    try {
+      const tx = await rtkContract.claimFaucet();
+      await tx.wait();
+      
+      // Refresh balance
+      const balWei = await rtkContract.balanceOf(account);
+      setRtkBalance(ethers.formatUnits(balWei, 18));
+      return true;
+    } catch (e) {
+      console.error("Faucet claim failed:", e);
+      return false;
+    }
+  };
+
   // Cryptographic signature to link Web3 identity to Supabase
   const signAuthMessage = async (activeSigner = signer) => {
     try {
@@ -161,6 +201,7 @@ export const Web3Provider = ({ children }) => {
       connectWallet,
       signAuthMessage,
       registerOnChain,
+      claimFaucet,
       registering,
       contract,
       rtkContract,

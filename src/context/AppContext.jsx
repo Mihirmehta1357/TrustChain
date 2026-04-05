@@ -37,7 +37,7 @@ export const AppProvider = ({ children }) => {
         kyc_status: 'pending',
         avatar_color: '#3B9B9B',
       };
-      
+
       // Try creating the profile if it's missing (fails gracefully if RLS or Schema is locked)
       try {
         const { data: newProfile, error: insertErr } = await supabase
@@ -45,7 +45,7 @@ export const AppProvider = ({ children }) => {
           .insert(payload)
           .select()
           .maybeSingle();
-          
+
         if (!insertErr && newProfile) {
           profile = newProfile;
         } else if (insertErr) {
@@ -75,13 +75,12 @@ export const AppProvider = ({ children }) => {
       setUser(merged);
       setIsLoggedIn(true);
 
-      // Load community in background
+      // Load community, vouchers and trust history in background
       loadCommunityData(authUser.id);
-      // Load vouchers
       loadVouchersData(authUser.id);
-      // Load trust score history
       loadTrustHistory(authUser.id);
     }
+
   };
 
   useEffect(() => {
