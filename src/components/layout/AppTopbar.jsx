@@ -14,7 +14,7 @@ export const AppTopbar = ({ toggleSidebar }) => {
   const location = useLocation();
   const [title, setTitle] = useState('Dashboard');
   const showToast = useToast();
-  const { account, connectWallet } = useContext(Web3Context);
+  const { account, connectWallet, rtkContract } = useContext(Web3Context);
 
   useEffect(() => {
     setTitle(SCREEN_TITLES[location.pathname] || '');
@@ -35,6 +35,38 @@ export const AppTopbar = ({ toggleSidebar }) => {
       
       <div className="topbar-actions" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
         
+        {account && rtkContract && (
+          <button
+            className="btn animate-fade-in-up"
+            style={{ backgroundColor: '#185FA5', color: '#fff', fontSize: '12px', padding: '5px 10px', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 600 }}
+            onClick={async () => {
+              if (!window.ethereum || !rtkContract) return;
+              try {
+                const address = await rtkContract.getAddress();
+                await window.ethereum.request({
+                  method: 'wallet_watchAsset',
+                  params: {
+                    type: 'ERC20',
+                    options: {
+                      address: address,
+                      symbol: 'RTK',
+                      decimals: 18,
+                      image: 'https://upload.wikimedia.org/wikipedia/commons/e/ee/React-icon.svg',
+                    },
+                  },
+                });
+                showToast('RTK Token brilliantly added to MetaMask!', 'success');
+              } catch (e) {
+                console.error(e);
+                showToast('Failed to add token to MetaMask.', 'error');
+              }
+            }}
+            title="Import RTK Token to MetaMask"
+          >
+            🦊 Add RTK to Wallet
+          </button>
+        )}
+
         {!account ? (
           <button 
             type="button"
@@ -42,10 +74,8 @@ export const AppTopbar = ({ toggleSidebar }) => {
             style={{ backgroundColor: '#F6851B', color: '#fff', fontSize: '13px', padding: '6px 12px', border: 'none', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}
             onClick={async (e) => {
               e.preventDefault();
-              console.log('Connect MetaMask button clicked!');
               try {
-                const res = await connectWallet();
-                console.log('connectWallet returned:', res);
+                await connectWallet();
               } catch (err) {
                 console.error('connectWallet threw an error:', err);
               }
