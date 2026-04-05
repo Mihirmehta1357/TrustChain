@@ -1,9 +1,11 @@
 import React, { useContext, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { ethers } from 'ethers';
 import { AppContext } from '../../context/AppContext';
 import { Web3Context } from '../../context/Web3Context';
 import { useToast } from '../../components/shared/ToastProvider';
 import { StatCard } from '../../components/shared/SharedComponents';
+import { fetchLenderLoans } from '../../utils/supabaseService';
 
 // ─── Utility ──────────────────────────────────────────────────────────────────
 const shortAddr = (addr) => addr ? `${addr.slice(0, 6)}…${addr.slice(-4)}` : '';
@@ -17,10 +19,11 @@ const pill = (status) => {
 export const LenderDashboardPage = () => {
   const navigate  = useNavigate();
   const showToast = useToast();
-  const { lenderData } = useContext(AppContext);
+  const { lenderData, user } = useContext(AppContext);
   const { contract, account, trustScore } = useContext(Web3Context);
 
   const [portfolio, setPortfolio]   = useState(null);
+  const [dbLoans, setDbLoans]       = useState([]);
   const [loading, setLoading]       = useState(true);
   const [endorsing, setEndorsing]   = useState(null);
 
@@ -40,9 +43,9 @@ export const LenderDashboardPage = () => {
           myLoans.push({
             id:           Number(l.id),
             borrower:     l.borrower,
-            principal:    Number(l.principal),
+            principal:    Number(ethers.formatEther(l.principal)),
             interestRate: Number(l.interestRate),
-            totalOwed:    Number(l.totalOwed),
+            totalOwed:    Number(ethers.formatEther(l.totalOwed)),
             purpose:      l.purpose,
             status:       Number(l.status),
           });
@@ -65,11 +68,26 @@ export const LenderDashboardPage = () => {
     }
   };
 
+  const fetchDbLoans = async () => {
+    if (!user?.id) return;
+    try {
+      const loans = await fetchLenderLoans(user.id);
+      setDbLoans(loans);
+    } catch (e) {
+      console.error('Failed to fetch DB loans:', e);
+    }
+  };
+
   useEffect(() => {
-    fetchPortfolio();
-    const interval = setInterval(fetchPortfolio, 8000);
+    const load = async () => {
+      setLoading(true);
+      await Promise.all([fetchPortfolio(), fetchDbLoans()]);
+      setLoading(false);
+    };
+    load();
+    const interval = setInterval(load, 8000);
     return () => clearInterval(interval);
-  }, [contract, account]);
+  }, [contract, account, user?.id]);
 
   // ─── Endorse borrower from portfolio ──────────────────────────────────────
   const handleEndorse = async (borrowerAddress) => {
@@ -103,14 +121,31 @@ export const LenderDashboardPage = () => {
   // Derive stats (mixing AppContext mockup with real blockchain if available)
   const p = portfolio;
   const blockchainTotalLent = p ? p.totalDeployed : 0;
-  const displayTotalLent = lenderData.totalLent + blockchainTotalLent;
+  const dbTotalLent = dbLoans.reduce((s, l) => s + (l.amount || l.principal), 0);
+  const displayTotalLent = (lenderData?.totalLent || 0) + blockchainTotalLent + dbTotalLent;
   
   const blockchainActiveCount = p ? p.outstanding.length : 0;
-  const displayActiveLoans = lenderData.activeLoans + blockchainActiveCount;
+  const dbActiveCount = dbLoans.filter(l => l.status === 'active' || l.status === 'funded').length;
+  const displayActiveLoans = (lenderData?.activeLoans || 0) + blockchainActiveCount + dbActiveCount;
 
   const totalInterest = p ? p.totalExpected - p.totalDeployed : 0;
-  const repaymentRate = p && p.myLoans.length > 0
-    ? Math.round((p.repaidCount / p.myLoans.length) * 100) : 0;
+  
+  const onChainLoans = p ? p.myLoans : [];
+  const dbFormattedLoans = dbLoans.map(l => ({
+    id: l.dbId || l.id,
+    borrower: l.walletAddress || '0x000...000',
+    borrowerName: l.profiles?.full_name || l.borrower || 'Anonymous',
+    purpose: l.purpose,
+    principal: l.amount || l.principal,
+    totalOwed: l.total_owed || l.totalOwed || Math.round((l.amount || l.principal) * 1.15),
+    interestRate: l.interest_rate || l.interestRate || 15,
+    status: l.status === 'funded' || l.status === 'active' ? 1 : 0,
+    isOffChain: true
+  }));
+  const allLoans = [...onChainLoans, ...dbFormattedLoans];
+
+  const repaymentRate = allLoans.length > 0
+    ? Math.round(((p?.repaidCount || 0) / allLoans.length) * 100) : 0;
 
   return (
     <section className="screen active" aria-label="Lender Dashboard">
@@ -136,13 +171,13 @@ export const LenderDashboardPage = () => {
         <StatCard label="Total Lent" value={`₹${displayTotalLent.toLocaleString('en-IN')}`}
           sub="Across all loans" color="var(--color-warning)"
           icon={<svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><rect x="1" y="5" width="18" height="12" rx="2"/><path d="M1 9h18"/></svg>} />
-        <StatCard label="Interest Earned" value={`₹${lenderData.interestEarned.toLocaleString('en-IN')}`}
+        <StatCard label="Interest Earned" value={`₹${(lenderData?.interestEarned || 0).toLocaleString('en-IN')}`}
           sub="Net returns" color="var(--color-success)"
           icon={<svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M1 15l5-7 4 3 4-6 5 3"/></svg>} />
         <StatCard label="Active Loans" value={displayActiveLoans}
           sub="Currently funded" color="var(--color-primary)"
           icon={<svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M10 2L3 6v6c0 4 3 6.5 7 8 4-1.5 7-4 7-8V6l-7-4z"/></svg>} />
-        <StatCard label="Repayments Received" value={`₹${(lenderData.repaymentsReceived + (p?.totalRepaid || 0)).toLocaleString('en-IN')}`}
+        <StatCard label="Repayments Received" value={`₹${((lenderData?.repaymentsReceived || 0) + (p?.totalRepaid || 0)).toLocaleString('en-IN')}`}
           sub="Returned to you" color="#185FA5"
           icon={<svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M18 10H2M8 4l-6 6 6 6"/></svg>} />
       </div>
@@ -154,7 +189,7 @@ export const LenderDashboardPage = () => {
             <div className="card-title">On-Chain Portfolio Health</div>
             <div className="card-subtitle">Based on repayment performance of your smart contract funded loans</div>
           </div>
-          <div style={{ fontSize: '0.75rem', color: 'var(--color-muted)' }}>{p?.myLoans.length ?? 0} loans funded</div>
+          <div style={{ fontSize: '0.75rem', color: 'var(--color-muted)' }}>{allLoans.length} loans funded</div>
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 'var(--sp-4)', marginTop: 16 }}>
@@ -179,13 +214,13 @@ export const LenderDashboardPage = () => {
             <div style={{ fontSize: '1.8rem', fontWeight: 800, color: repaymentRate >= 80 ? 'var(--color-success)' : 'var(--color-warning)' }}>
               {repaymentRate}%
             </div>
-            <div style={{ fontSize: '0.75rem', color: 'var(--color-muted)' }}>{p?.repaidCount}/{p?.myLoans.length} loans closed</div>
+            <div style={{ fontSize: '0.75rem', color: 'var(--color-muted)' }}>{p?.repaidCount || 0}/{allLoans.length} loans closed</div>
           </div>
         </div>
       </div>
 
       {/* ── Loan List ── */}
-      {!p || p.myLoans.length === 0 ? (
+      {allLoans.length === 0 ? (
         <div className="card animate-fade-in-up" style={{ textAlign: 'center', padding: 'var(--sp-10)' }}>
           <div style={{ fontSize: '2.5rem', marginBottom: 12 }}>💼</div>
           <div className="card-title mb-2">No loans funded yet</div>
@@ -212,7 +247,7 @@ export const LenderDashboardPage = () => {
                 </tr>
               </thead>
               <tbody>
-                {p.myLoans.map((loan, idx) => {
+                {allLoans.map((loan, idx) => {
                   const { cls, label } = pill(loan.status);
                   const isRepaid = loan.status === 2;
                   return (
@@ -220,9 +255,11 @@ export const LenderDashboardPage = () => {
                       borderBottom: '1px solid var(--color-border)',
                       background: idx % 2 === 0 ? 'transparent' : 'rgba(0,0,0,0.015)'
                     }}>
-                      <td style={{ padding: '12px 12px', fontWeight: 700, color: 'var(--color-primary)' }}>#{loan.id}</td>
-                      <td style={{ padding: '12px 12px', fontFamily: 'monospace', fontSize: '0.8rem' }}>
-                        {shortAddr(loan.borrower)}
+                      <td style={{ padding: '12px 12px', fontWeight: 700, color: 'var(--color-primary)' }}>
+                        #{String(loan.id).replace('mock-', '').substring(0, 5)}
+                      </td>
+                      <td style={{ padding: '12px 12px', fontSize: '0.8rem' }}>
+                        {loan.isOffChain ? (loan.borrowerName || shortAddr(loan.borrower)) : <span style={{fontFamily: 'monospace'}}>{shortAddr(loan.borrower)}</span>}
                       </td>
                       <td style={{ padding: '12px 12px', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {loan.purpose}
@@ -240,7 +277,7 @@ export const LenderDashboardPage = () => {
                         <span className={`pill text-xs ${cls}`}>{label}</span>
                       </td>
                       <td style={{ padding: '12px 12px' }}>
-                        {!isRepaid ? (
+                        {!isRepaid && !loan.isOffChain ? (
                           <button
                             className="btn btn-outline"
                             style={{ fontSize: '0.75rem', padding: '4px 10px', borderColor: '#3B9B9B', color: '#3B9B9B' }}
@@ -250,6 +287,8 @@ export const LenderDashboardPage = () => {
                           >
                             {endorsing === loan.borrower ? '⏳' : '🌟 Endorse'}
                           </button>
+                        ) : !isRepaid && loan.isOffChain ? (
+                          <span style={{ color: 'var(--color-text)', fontSize: '0.8rem' }}>Off-chain</span>
                         ) : (
                           <span style={{ color: 'var(--color-success)', fontSize: '0.8rem', fontWeight: 600 }}>✓ Settled</span>
                         )}
@@ -262,16 +301,16 @@ export const LenderDashboardPage = () => {
           </div>
 
           {/* Portfolio ROI summary footer */}
-          {p.myLoans.length > 0 && (
+          {allLoans.length > 0 && (
             <div style={{ marginTop: 'var(--sp-4)', padding: 'var(--sp-3)', background: 'var(--color-bg-subtle)', borderRadius: 'var(--radius-md)', display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
               <span className="text-sm text-muted">
-                📊 Total outstanding: <strong>₹{(p.totalDeployed - p.totalRepaid).toLocaleString('en-IN')}</strong>
+                📊 Total outstanding: <strong>₹{((p?.totalDeployed || 0) - (p?.totalRepaid || 0)).toLocaleString('en-IN')}</strong>
               </span>
               <span className="text-sm text-muted">
-                💰 Unrealised income: <strong style={{ color: 'var(--color-warning)' }}>₹{(totalInterest - (p.totalRepaid > 0 ? totalInterest * p.repaidCount / p.myLoans.length : 0)).toLocaleString('en-IN')}</strong>
+                💰 Unrealised income: <strong style={{ color: 'var(--color-warning)' }}>₹{(totalInterest - (p?.totalRepaid > 0 ? totalInterest * p.repaidCount / p.myLoans.length : 0)).toLocaleString('en-IN')}</strong>
               </span>
               <span className="text-sm text-muted">
-                ⛓️ All data live from Ethereum State Tree
+                ⛓️ Mixed On/Off-chain Data
               </span>
             </div>
           )}

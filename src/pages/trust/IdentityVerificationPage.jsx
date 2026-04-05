@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../../context/AppContext';
 import { StepIndicator, TrustGaugeLarge } from '../../components/shared/SharedComponents';
 import { useToast } from '../../components/shared/ToastProvider';
+import { updateUserProfile, createTransaction } from '../../utils/supabaseService';
 
 const VERIFY_STEPS = ['Choose Document', 'Upload Photo', 'Face Match'];
 const DOC_TYPES = [
@@ -13,7 +14,7 @@ const DOC_TYPES = [
 ];
 
 export const IdentityVerificationPage = () => {
-  const { verifyStep, setVerifyStep, verifyDocType, setVerifyDocType, trustScore, setTrustScore } = useContext(AppContext);
+  const { verifyStep, setVerifyStep, verifyDocType, setVerifyDocType, trustScore, setTrustScore, user } = useContext(AppContext);
   const showToast = useToast();
   const navigate = useNavigate();
   const [uploaded, setUploaded] = useState(false);
@@ -32,12 +33,30 @@ export const IdentityVerificationPage = () => {
     setTimeout(() => setVerifyStep(3), 800);
   };
 
-  const handleSelfie = () => {
+  const handleSelfie = async () => {
     setSelfieCapturing(true);
-    setTimeout(() => {
+    setTimeout(async () => {
       setSelfieCapturing(false);
       setVerified(true);
-      setTrustScore(prev => Math.min(100, prev + 7));
+
+      const newScore = Math.min(100, (trustScore || 50) + 7);
+      await setTrustScore(newScore);
+
+      // Persist additional verification to Supabase profile
+      if (user?.id) {
+        await updateUserProfile(user.id, {
+          // Mark an additional_verification field so we can track this
+          joined_label: user.joined_label || new Date().toLocaleDateString('en-IN', { month: 'short', year: 'numeric' }),
+        });
+
+        // Create a transaction record for verification activity
+        await createTransaction({
+          userId: user.id,
+          type: 'verified',
+          actorName: user.name || user.full_name || 'User',
+        });
+      }
+
       showToast('✅ Identity verified! Trust Score increased by +7 points.', 'success');
     }, 2000);
   };
@@ -146,7 +165,7 @@ export const IdentityVerificationPage = () => {
             <div style={{ marginTop: 'var(--sp-6)' }} className="text-center">
               <div className="verified-badge-anim">✓</div>
               <h2 className="mt-4 font-bold" style={{ color: 'var(--color-success)' }}>Identity Verified!</h2>
-              <p className="text-muted mt-2">Your Trust Score has been updated.</p>
+              <p className="text-muted mt-2">Your Trust Score has been updated and saved.</p>
               <div className="mt-5">
                 <TrustGaugeLarge score={trustScore} size={160} />
               </div>
@@ -170,6 +189,16 @@ export const IdentityVerificationPage = () => {
               <div className="tip-row"><span>🇮🇳</span><span className="text-sm">Accepts all standard Indian govt IDs</span></div>
             </div>
           </div>
+          {user?.id && (
+            <div className="card mt-4" style={{ background: '#EAF3DE', border: '1px solid #97C459' }}>
+              <div className="font-semibold text-sm mb-2" style={{ color: '#3B6D11' }}>Your current status</div>
+              <div className="text-xs" style={{ color: '#3B6D11', lineHeight: 1.7 }}>
+                Trust Score: <strong>{trustScore ?? 50}</strong><br />
+                KYC Status: <strong>{user?.kycStatus === 'completed' ? '✅ Completed' : '⏳ Pending'}</strong><br />
+                Phone: <strong>{user?.phone_number ? '✅ Verified' : '⚠️ Not verified'}</strong>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </section>

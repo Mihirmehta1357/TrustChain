@@ -1,7 +1,11 @@
 const { buildModule } = require("@nomicfoundation/hardhat-ignition/modules");
 
 module.exports = buildModule("TrustChainModule", (m) => {
-  const trustchain = m.contract("TrustChain", []);
+  // First, deploy the RupeeTrustToken (RTK)
+  const rupeeTrustToken = m.contract("RupeeTrustToken");
 
-  return { trustchain };
+  // Pass the deployed token address into TrustChain's constructor
+  const trustchain = m.contract("TrustChain", [rupeeTrustToken]);
+
+  return { rupeeTrustToken, trustchain };
 });

@@ -3,13 +3,21 @@ import { useNavigate } from 'react-router-dom';
 import { Web3Context } from '../../context/Web3Context';
 import { AppContext } from '../../context/AppContext';
 import { useToast } from '../../components/shared/ToastProvider';
+import { ethers } from 'ethers';
+import {
+  createCommunity, joinCommunity, leaveCommunity,
+  createEndorsementRequest, fetchEndorsementRequests, updateEndorsementRequest,
+  createCommunityLoanRequest, fetchCommunityLoanRequests, fundCommunityLoan,
+  createTransaction, timeAgo,
+} from '../../utils/supabaseService';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const uid = () => Math.random().toString(36).slice(2, 10);
 const shortAddr = (a) => a ? `${a.slice(0, 8)}…${a.slice(-4)}` : '';
-const formatDate = (iso) => new Date(iso).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
-const generateInviteCode = (name, creator) =>
-  btoa(`${name}::${creator}::${Date.now()}`).replace(/[^a-zA-Z0-9]/g, '').slice(0, 10).toUpperCase();
+const formatDate = (iso) => {
+  if (!iso) return '';
+  return new Date(iso).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+};
 
 // ─── Sub-components ────────────────────────────────────────────────────────────
 
@@ -203,8 +211,8 @@ const CommunityLoanRequests = ({ communityId, account, contract }) => {
     try {
       // Optionally also write to blockchain
       if (contract) {
-        showToast('Posting loan request to blockchain…', 'info');
-        const tx = await contract.requestLoan(BigInt(amount), `[Community] ${purpose}`);
+        showToast('Confirming community loan request in MetaMask...', 'info');
+        const tx = await contract.requestLoan(ethers.parseEther(amount.toString()), `[Community] ${purpose}`);
         await tx.wait();
       }
       const req = {
@@ -254,7 +262,8 @@ const CommunityLoanRequests = ({ communityId, account, contract }) => {
         setFunding(null); return;
       }
       const loan = await contract.loans(loanId);
-      const tx = await contract.fundLoan(loanId, { value: BigInt(Number(loan.principal)) });
+      const tx = await contract.fundLoan(loanId, { value: loan.principal });
+      showToast('Funding transaction submitted...', 'info');
       await tx.wait();
       setCommunityLoanRequests(prev =>
         prev.map(r => r.id === req.id ? { ...r, funders: [...r.funders, account], status: 'funded' } : r)
@@ -369,7 +378,7 @@ const CommunityLoanRequests = ({ communityId, account, contract }) => {
 };
 
 /** InviteHandler — dedicated invite management for admins */
-const InviteHandler = ({ community, account }) => {
+const InviteHandler = ({ community, isAdmin }) => {
   const [copied, setCopied] = useState(false);
 
   const copyCode = () => {
@@ -378,7 +387,7 @@ const InviteHandler = ({ community, account }) => {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  if (community.admin.toLowerCase() !== account?.toLowerCase()) {
+  if (!isAdmin) {
     return (
       <div className="card animate-fade-in-up stagger-2">
         <div className="card-title mb-2">🔑 Community Access</div>
@@ -425,8 +434,8 @@ export const CommunityPage = () => {
   const showToast = useToast();
   const { contract, account, trustScore, refreshTrustScore } = useContext(Web3Context);
   const {
-    communities, setCommunities,
-    userCommunityId, setUserCommunityId,
+    community, setCommunity,
+    user, refreshCommunity,
   } = useContext(AppContext);
 
   const [view, setView]             = useState('landing'); // 'landing'|'create'|'join'|'dashboard'
@@ -436,77 +445,68 @@ export const CommunityPage = () => {
   const [loading, setLoading]             = useState(false);
   const [activeTab, setActiveTab]         = useState('members'); // 'members'|'endorsements'|'loans'
 
-  const myCommunity = userCommunityId
-    ? (communities || []).find(c => c.id === userCommunityId)
-    : null;
+  // Alias for template compat
+  const myCommunity = community;
+  const userCommunityId = community?.id;
 
   useEffect(() => {
     if (myCommunity) setView('dashboard');
     else setView('landing');
-  }, [userCommunityId, myCommunity]);
+  }, [community]);
 
   // ── Create ──────────────────────────────────────────────────────────────────
-  const handleCreate = (e) => {
+  const handleCreate = async (e) => {
     e.preventDefault();
-    if (!account) { showToast('Connect your wallet first!', 'error'); return; }
+    if (!user?.id) { showToast('Please sign in first!', 'error'); return; }
     if (!communityName.trim()) { showToast('Enter a community name.', 'error'); return; }
     setLoading(true);
-    const id   = `comm_${uid()}`;
-    const code = generateInviteCode(communityName, account);
-    const newCommunity = {
-      id,
-      name:        communityName.trim(),
-      description: communityDesc.trim(),
-      admin:       account,
-      inviteCode:  code,
-      members: [{ address: account, role: 'admin', joinedAt: new Date().toISOString() }],
-      createdAt: new Date().toISOString(),
-    };
-    setCommunities(prev => [...(prev || []), newCommunity]);
-    setUserCommunityId(id);
-    setTimeout(() => {
+    try {
+      const { data, error } = await createCommunity({
+        name: communityName.trim(),
+        description: communityDesc.trim(),
+        adminId: user.id,
+      });
+      if (error) { showToast('Failed to create community: ' + error.message, 'error'); return; }
+      showToast(`🏘️ "${communityName}" created! Invite code: ${data.invite_code}`, 'success');
+      await refreshCommunity(user.id);
+    } catch (err) {
+      showToast('Error: ' + err.message, 'error');
+    } finally {
       setLoading(false);
-      showToast(`🏘️ "${communityName}" created! Your invite code: ${code}`, 'success');
-    }, 600);
+    }
   };
 
   // ── Join ────────────────────────────────────────────────────────────────────
-  const handleJoin = (e) => {
+  const handleJoin = async (e) => {
     e.preventDefault();
-    if (!account) { showToast('Connect your wallet first!', 'error'); return; }
-    const code   = inviteInput.trim().toUpperCase();
-    const target = (communities || []).find(c => c.inviteCode === code);
-    if (!target) { showToast('Invalid invite code. Ask your community admin.', 'error'); return; }
-    if (target.members.some(m => m.address.toLowerCase() === account.toLowerCase())) {
-      showToast('You are already a member!', 'error'); return;
-    }
+    if (!user?.id) { showToast('Please sign in first!', 'error'); return; }
     setLoading(true);
-    const updated = {
-      ...target,
-      members: [...target.members, { address: account, role: 'member', joinedAt: new Date().toISOString() }],
-    };
-    setCommunities(prev => prev.map(c => c.id === target.id ? updated : c));
-    setUserCommunityId(target.id);
-    setTimeout(() => {
+    try {
+      const { data, error } = await joinCommunity({ inviteCode: inviteInput, userId: user.id });
+      if (error) { showToast(error.message || 'Invalid invite code.', 'error'); return; }
+      showToast(`✅ Joined "${data.name}"!`, 'success');
+      await refreshCommunity(user.id);
+    } catch (err) {
+      showToast('Error: ' + err.message, 'error');
+    } finally {
       setLoading(false);
-      showToast(`✅ Joined "${target.name}"!`, 'success');
-    }, 500);
+    }
   };
 
   // ── Leave ───────────────────────────────────────────────────────────────────
-  const handleLeave = () => {
-    if (!myCommunity) return;
-    const updated = {
-      ...myCommunity,
-      members: myCommunity.members.filter(m => m.address.toLowerCase() !== account?.toLowerCase()),
-    };
-    setCommunities(prev => prev.map(c => c.id === myCommunity.id ? updated : c));
-    setUserCommunityId(null);
-    showToast('You have left the community.', 'info');
+  const handleLeave = async () => {
+    if (!myCommunity || !user?.id) return;
+    try {
+      await leaveCommunity({ communityId: myCommunity.id, userId: user.id });
+      setCommunity(null);
+      showToast('You have left the community.', 'info');
+    } catch (err) {
+      showToast('Failed to leave: ' + err.message, 'error');
+    }
   };
 
   // ── Render ──────────────────────────────────────────────────────────────────
-  const isAdmin = myCommunity?.admin?.toLowerCase() === account?.toLowerCase();
+  const isAdmin = myCommunity?.userRole === 'admin' || myCommunity?.admin_id === user?.id;
 
   return (
     <section className="screen active" aria-label="Community">
@@ -638,7 +638,7 @@ export const CommunityPage = () => {
                     <div style={{ fontSize: '0.875rem', color: 'var(--color-muted)' }}>{myCommunity.description}</div>
                   )}
                   <div style={{ display: 'flex', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
-                    <span className="pill pill-success">{myCommunity.members.length} Member{myCommunity.members.length !== 1 ? 's' : ''}</span>
+                    <span className="pill pill-success">{(myCommunity.members || []).length} Member{(myCommunity.members || []).length !== 1 ? 's' : ''}</span>
                     {isAdmin && <span className="pill" style={{ background: '#EEEDFE', color: '#534AB7', border: 'none' }}>👑 Admin</span>}
                     <span className="pill" style={{ background: '#E0F4F4', color: '#3B9B9B', border: 'none' }}>🔒 Private</span>
                   </div>
@@ -679,33 +679,37 @@ export const CommunityPage = () => {
             <div className="card animate-fade-in-up">
               <div className="card-title mb-4">👥 Members</div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                {myCommunity.members.map((m, i) => (
-                  <div key={m.address} style={{
-                    display: 'flex', alignItems: 'center', gap: 14,
-                    padding: 'var(--sp-3)',
-                    background: m.address.toLowerCase() === account?.toLowerCase() ? 'var(--color-bg-subtle)' : 'transparent',
-                    borderRadius: 'var(--radius-md)',
-                    border: '1px solid var(--color-border)',
-                  }}>
-                    <div style={{ width: 40, height: 40, borderRadius: '50%', background: m.role === 'admin' ? '#534AB7' : '#3B9B9B', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontWeight: 700, fontSize: '0.85rem', flexShrink: 0 }}>
-                      {m.address.slice(2, 4).toUpperCase()}
-                    </div>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontFamily: 'monospace', fontWeight: 600, fontSize: '0.875rem' }}>
-                        {shortAddr(m.address)}
-                        {m.address.toLowerCase() === account?.toLowerCase() && (
-                          <span style={{ marginLeft: 6, fontSize: '0.7rem', color: '#3B9B9B', fontFamily: 'sans-serif' }}>(you)</span>
-                        )}
+                {(myCommunity.members || []).map((m) => {
+                  const mName = m.profiles?.full_name || shortAddr(m.user_id || '');
+                  const mInitials = mName.substring(0, 2).toUpperCase();
+                  const mColor = m.profiles?.avatar_color || (m.role === 'admin' ? '#534AB7' : '#3B9B9B');
+                  const isMe = m.user_id === user?.id;
+                  return (
+                    <div key={m.id || m.user_id} style={{
+                      display: 'flex', alignItems: 'center', gap: 14,
+                      padding: 'var(--sp-3)',
+                      background: isMe ? 'var(--color-bg-subtle)' : 'transparent',
+                      borderRadius: 'var(--radius-md)',
+                      border: '1px solid var(--color-border)',
+                    }}>
+                      <div style={{ width: 40, height: 40, borderRadius: '50%', background: mColor, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontWeight: 700, fontSize: '0.85rem', flexShrink: 0 }}>
+                        {mInitials}
                       </div>
-                      <div style={{ fontSize: '0.75rem', color: 'var(--color-muted)', marginTop: 2 }}>
-                        {m.role === 'admin' ? '👑 Admin' : '👤 Member'} · Joined {formatDate(m.joinedAt)}
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontWeight: 600, fontSize: '0.875rem' }}>
+                          {mName}
+                          {isMe && <span style={{ marginLeft: 6, fontSize: '0.7rem', color: '#3B9B9B' }}>(you)</span>}
+                        </div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--color-muted)', marginTop: 2 }}>
+                          {m.role === 'admin' ? '👑 Admin' : '👤 Member'} · Joined {formatDate(m.joined_at)}
+                        </div>
                       </div>
+                      {m.role === 'admin' && (
+                        <span className="pill text-xs" style={{ background: '#EEEDFE', color: '#534AB7', border: 'none' }}>Admin</span>
+                      )}
                     </div>
-                    {m.role === 'admin' && (
-                      <span className="pill text-xs" style={{ background: '#EEEDFE', color: '#534AB7', border: 'none' }}>Admin</span>
-                    )}
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}
@@ -731,7 +735,7 @@ export const CommunityPage = () => {
 
           {/* Tab: Invite */}
           {activeTab === 'invite' && (
-            <InviteHandler community={myCommunity} account={account} />
+            <InviteHandler community={{ ...myCommunity, inviteCode: myCommunity.invite_code, admin: myCommunity.admin_id, createdAt: myCommunity.created_at }} isAdmin={isAdmin} />
           )}
         </div>
       )}
