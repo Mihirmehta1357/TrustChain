@@ -14,11 +14,21 @@ export const AppTopbar = ({ toggleSidebar }) => {
   const location = useLocation();
   const [title, setTitle] = useState('Dashboard');
   const showToast = useToast();
-  const { account, connectWallet, rtkContract } = useContext(Web3Context);
+  const { account, connectWallet, rtkContract, claimFaucet, rtkBalance } = useContext(Web3Context);
+  const [claiming, setClaiming] = useState(false);
 
   useEffect(() => {
     setTitle(SCREEN_TITLES[location.pathname] || '');
   }, [location]);
+
+  const handleClaim = async () => {
+    setClaiming(true);
+    showToast('Claiming ₹1,00,000 RTK test tokens...', 'info');
+    const success = await claimFaucet();
+    if (success) showToast('✅ Successfully funded your wallet with 1,00,000 RTK!', 'success');
+    else showToast('Failed to claim RTK or already claimed.', 'error');
+    setClaiming(false);
+  };
 
   return (
     <header className="app-topbar" role="banner">
@@ -35,35 +45,15 @@ export const AppTopbar = ({ toggleSidebar }) => {
       
       <div className="topbar-actions" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
         
-        {account && rtkContract && (
+        {account && rtkContract && Number(rtkBalance) === 0 && (
           <button
             className="btn animate-fade-in-up"
             style={{ backgroundColor: '#185FA5', color: '#fff', fontSize: '12px', padding: '5px 10px', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 600 }}
-            onClick={async () => {
-              if (!window.ethereum || !rtkContract) return;
-              try {
-                const address = await rtkContract.getAddress();
-                await window.ethereum.request({
-                  method: 'wallet_watchAsset',
-                  params: {
-                    type: 'ERC20',
-                    options: {
-                      address: address,
-                      symbol: 'RTK',
-                      decimals: 18,
-                      image: 'https://upload.wikimedia.org/wikipedia/commons/e/ee/React-icon.svg',
-                    },
-                  },
-                });
-                showToast('RTK Token brilliantly added to MetaMask!', 'success');
-              } catch (e) {
-                console.error(e);
-                showToast('Failed to add token to MetaMask.', 'error');
-              }
-            }}
-            title="Import RTK Token to MetaMask"
+            onClick={handleClaim}
+            disabled={claiming}
+            title="Claim Test RTK Tokens"
           >
-            🦊 Add RTK to Wallet
+            {claiming ? '⏳ Mining...' : '🚰 Claim Test RTK'}
           </button>
         )}
 

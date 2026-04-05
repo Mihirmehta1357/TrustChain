@@ -6,7 +6,7 @@ import { supabase } from '../../utils/supabaseClient';
 const inputStyle = {
   width: '100%', padding: '12px 16px', fontSize: '15px',
   fontFamily: 'inherit', color: '#1A2B3D', background: '#FFFFFF',
-  border: '1.5px solid #E8EDF2', borderRadius: '10px', outline: 'none',
+  borderWidth: '1.5px', borderStyle: 'solid', borderColor: '#E8EDF2', borderRadius: '10px', outline: 'none',
   transition: 'border-color 0.15s ease, box-shadow 0.15s ease', boxSizing: 'border-box',
 };
 const focusedStyle = { ...inputStyle, borderColor: '#3B9B9B', boxShadow: '0 0 0 3px rgba(59,155,155,0.15)' };
