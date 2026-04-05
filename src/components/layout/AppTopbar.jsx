@@ -14,18 +14,24 @@ export const AppTopbar = ({ toggleSidebar }) => {
   const location = useLocation();
   const [title, setTitle] = useState('Dashboard');
   const showToast = useToast();
-  const { account, connectWallet, rtkContract } = useContext(Web3Context);
+  const { account, connectWallet, rtkContract, rtkBalance, claimFaucet, refreshRTKBalance } = useContext(Web3Context);
+  const [claiming, setClaiming] = useState(false);
 
   useEffect(() => {
     setTitle(SCREEN_TITLES[location.pathname] || '');
   }, [location]);
 
   const handleClaim = async () => {
+    if (!rtkContract || !claimFaucet) return;
     setClaiming(true);
-    showToast('Claiming ₹1,00,000 RTK test tokens...', 'info');
+    showToast('⏳ Confirm RTK claim in MetaMask…', 'info');
     const success = await claimFaucet();
-    if (success) showToast('✅ Successfully funded your wallet with 1,00,000 RTK!', 'success');
-    else showToast('Failed to claim RTK or already claimed.', 'error');
+    if (success) {
+      if (refreshRTKBalance) await refreshRTKBalance();
+      showToast('💰 ₹1,00,000 RTK credited to your wallet!', 'success');
+    } else {
+      showToast('Faucet already claimed or failed.', 'error');
+    }
     setClaiming(false);
   };
 
@@ -45,35 +51,48 @@ export const AppTopbar = ({ toggleSidebar }) => {
       <div className="topbar-actions" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
         
         {account && rtkContract && (
-          <button
-            className="btn animate-fade-in-up"
-            style={{ backgroundColor: '#185FA5', color: '#fff', fontSize: '12px', padding: '5px 10px', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 600 }}
-            onClick={async () => {
-              if (!window.ethereum || !rtkContract) return;
-              try {
-                const address = await rtkContract.getAddress();
-                await window.ethereum.request({
-                  method: 'wallet_watchAsset',
-                  params: {
-                    type: 'ERC20',
-                    options: {
-                      address: address,
-                      symbol: 'RTK',
-                      decimals: 18,
-                      image: 'https://upload.wikimedia.org/wikipedia/commons/e/ee/React-icon.svg',
-                    },
-                  },
-                });
-                showToast('RTK Token brilliantly added to MetaMask!', 'success');
-              } catch (e) {
-                console.error(e);
-                showToast('Failed to add token to MetaMask.', 'error');
-              }
-            }}
-            title="Import RTK Token to MetaMask"
-          >
-            🦊 Add RTK to Wallet
-          </button>
+          <>
+            {/* RTK Balance chip */}
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', lineHeight: 1.2 }}>
+              <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--color-primary)', fontFamily: 'monospace' }}>
+                {parseFloat(rtkBalance || '0').toLocaleString('en-IN', { maximumFractionDigits: 0 })} RTK
+              </span>
+              <span style={{ fontSize: '10px', color: 'var(--color-muted)' }}>1 RTK = ₹1</span>
+            </div>
+
+            {/* Claim Faucet */}
+            <button
+              className="btn"
+              style={{ background: 'linear-gradient(135deg,#22c55e,#16a34a)', color: '#fff', fontSize: '11px', padding: '5px 10px', border: 'none', borderRadius: '6px', cursor: claiming ? 'not-allowed' : 'pointer', fontWeight: 700, opacity: claiming ? 0.7 : 1 }}
+              disabled={claiming}
+              title="Claim ₹1,00,000 RTK for testing"
+              onClick={handleClaim}
+            >
+              {claiming ? '⏳' : '💧 Claim RTK'}
+            </button>
+
+            {/* Add to MetaMask */}
+            <button
+              className="btn animate-fade-in-up"
+              style={{ backgroundColor: '#185FA5', color: '#fff', fontSize: '12px', padding: '5px 10px', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 600 }}
+              onClick={async () => {
+                if (!window.ethereum || !rtkContract) return;
+                try {
+                  const address = await rtkContract.getAddress();
+                  await window.ethereum.request({
+                    method: 'wallet_watchAsset',
+                    params: { type: 'ERC20', options: { address, symbol: 'RTK', decimals: 18, image: 'https://upload.wikimedia.org/wikipedia/commons/e/ee/React-icon.svg' } },
+                  });
+                  showToast('RTK Token added to MetaMask!', 'success');
+                } catch (e) {
+                  showToast('Failed to add token to MetaMask.', 'error');
+                }
+              }}
+              title="Import RTK Token to MetaMask"
+            >
+              🦊 Add RTK
+            </button>
+          </>
         )}
 
         {!account ? (
