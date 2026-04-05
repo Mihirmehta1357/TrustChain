@@ -60,7 +60,7 @@ export const FundLoanPage = () => {
   const navigate  = useNavigate();
   const location  = useLocation();
   const showToast = useToast();
-  const { contract, account, rtkContract, trustScore, refreshTrustScore, isRegistered } = useContext(Web3Context);
+  const { contract, account, rtkContract, trustScore, refreshTrustScore, isRegistered, refreshRTKBalance } = useContext(Web3Context);
   const { kycCompleted, user } = useContext(AppContext);
 
   const loan = location.state?.loan || MOCK_LOANS[0];
@@ -191,7 +191,8 @@ export const FundLoanPage = () => {
          await new Promise(r => setTimeout(r, 1500)); // Simulate networking
       }
       
-      showToast(`✅ ₹${Number(valToSend).toLocaleString('en-IN')} funded! Agreement executed on-chain.`, 'success');
+      showToast(`✅ ₹${Number(valToSend).toLocaleString('en-IN')} RTK funded! Agreement executed on-chain.`, 'success');
+      if (refreshRTKBalance) await refreshRTKBalance();
 
       // Persist to Supabase if loan has a dbId, else save to local storage for demo
       if (loan.dbId && user?.id) {
